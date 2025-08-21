@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Facebook</title>
+  <style>
+    /* ========= Reset & Variables ========= */
+    *, *::before, *::after { box-sizing: border-box; }
+    :root{
+      --bg:#0f1419;         /* nền tổng thể */
+      --card:#151c22;       /* nền thẻ */
+      --soft:#1c242c;       /* đường viền mềm */
+      --text:#e6edf3;       /* chữ */
+      --muted:#9fb0bf;      /* chữ phụ */
+      --brand:#1877f2;      /* xanh Facebook */
+      --brand-2:#1b84ff;    /* xanh hover */
+      --danger:#e02424;
+      --success:#17bf63;
+      --shadow: 0 6px 18px rgba(0,0,0,.3);
+      --radius: 16px;
+    }
+    html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; }
+    a{ color:inherit; text-decoration:none }
+    img{ max-width:100%; display:block }
+    button{ cursor:pointer; border:0; background:none; color:inherit; font:inherit }
+    input, textarea{ background:#0d1318; border:1px solid var(--soft); color:var(--text); border-radius:12px; padding:.75rem .9rem; width:100%; outline:none }
+    textarea{ resize:vertical }
+
+    /* ========= Layout ========= */
+    .app{
+      display:grid; grid-template-columns: 280px minmax(0,720px) 300px; gap:22px; padding:86px 22px 22px; max-width:1400px; margin:0 auto;
+    }
+    @media (max-width:1200px){ .app{ grid-template-columns: 240px minmax(0,1fr) 280px } }
+    @media (max-width:980px){ .app{ grid-template-columns: 1fr; padding:86px 12px 18px; } .sidebar, .contacts{ display:none } }
+
+    /* ========= Topbar ========= */
+    .topbar{ position:fixed; inset:0 0 auto 0; height:64px; display:flex; align-items:center; gap:14px; padding:0 16px; background:rgba(13,19,24,.8); backdrop-filter: blur(10px); border-bottom:1px solid var(--soft); z-index:50 }
+    .logo{ display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:.2px }
+    .logo-badge{ width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg, var(--brand), var(--brand-2)); display:grid; place-items:center; box-shadow:var(--shadow) }
+    .logo svg{ width:22px; height:22px; fill:white }
+    .search{ flex:1; max-width:560px }
+    .search input{ padding-left:40px }
+    .search-wrap{ position:relative }
+    .search-wrap svg{ position:absolute; left:12px; top:50%; transform:translateY(-50%); width:18px; height:18px; opacity:.7 }
+    .nav-icons{ display:flex; align-items:center; gap:8px }
+    .icon-btn{ width:40px; height:40px; display:grid; place-items:center; border-radius:12px; background:#0d1318; border:1px solid var(--soft) }
+    .icon-btn:hover{ outline:2px solid rgba(24,119,242,.25) }
+
+    /* ========= Cards ========= */
+    .card{ background:var(--card); border:1px solid var(--soft); border-radius:var(--radius); box-shadow:var(--shadow) }
+    .card + .card{ margin-top:16px }
+    .card-header, .card-footer{ padding:12px 14px; border-bottom:1px solid var(--soft) }
+    .card-footer{ border-top:1px solid var(--soft); border-bottom:none }
+    .card-body{ padding:14px }
+
+    /* ========= Sidebar ========= */
+    .sidebar .section-title{ margin:8px 0 10px; color:var(--muted); font-weight:600; letter-spacing:.2px }
+    .menu{ display:grid; gap:8px }
+    .menu a{ padding:10px 12px; border-radius:12px; display:flex; align-items:center; gap:10px; border:1px solid transparent }
+    .menu a:hover{ background:#0d1318; border-color:var(--soft) }
+    .menu svg{ width:18px; height:18px; opacity:.85 }
+
+    /* ========= Composer ========= */
+    .composer{ display:grid; grid-template-columns: 48px 1fr; gap:12px; align-items:start }
+    .avatar{ width:48px; height:48px; border-radius:999px; background:linear-gradient(135deg,#2b7bff,#4ad0ff) }
+    .chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px }
+    .chip{ padding:6px 10px; border:1px dashed var(--soft); border-radius:999px; color:var(--muted); font-size:.86rem }
+    .composer-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px }
+    .btn{ padding:9px 12px; border-radius:12px; font-weight:600; border:1px solid var(--soft); background:#0d1318 }
+    .btn.primary{ background:linear-gradient(135deg,var(--brand),var(--brand-2)); border-color:transparent }
+    .btn:disabled{ opacity:.6; cursor:not-allowed }
+
+    /* ========= Stories ========= */
+    .stories{ display:grid; grid-template-columns: repeat(6, 1fr); gap:10px }
+    .story{ position:relative; border-radius:16px; overflow:hidden; aspect-ratio: 9 / 16; border:1px solid var(--soft); background:#0d1318 }
+    .story .label{ position:absolute; left:8px; bottom:8px; right:8px; font-weight:700; text-shadow:0 2px 6px rgba(0,0,0,.7) }
+    @media (max-width:980px){ .stories{ grid-template-columns: repeat(4, 1fr) } }
+
+    /* ========= Post ========= */
+    .post-header{ display:flex; align-items:center; gap:10px }
+    .post-header .name{ font-weight:700 }
+    .post-header .meta{ color:var(--muted); font-size:.9rem }
+    .post-content{ margin-top:10px; white-space:pre-wrap }
+    .post-media{ margin-top:10px; border-radius:12px; overflow:hidden; border:1px solid var(--soft) }
+    .post-actions{ display:grid; grid-template-columns: repeat(3,1fr); gap:8px }
+    .action{ padding:10px; border-radius:12px; text-align:center; border:1px solid var(--soft); background:#0d1318 }
+    .action.active{ outline:2px solid rgba(24,119,242,.35) }
+    .counts{ color:var(--muted); font-size:.9rem; display:flex; gap:12px }
+
+    /* ========= Comments ========= */
+    .comments{ display:grid; gap:10px }
+    .comment{ display:grid; grid-template-columns: 36px 1fr; gap:8px }
+    .comment .bubble{ background:#0d1318; border:1px solid var(--soft); border-radius:12px; padding:8px 10px }
+
+    /* ========= Contacts ========= */
+    .contact-item{ display:flex; align-items:center; gap:10px; padding:8px; border-radius:12px }
+    .contact-item:hover{ background:#0d1318 }
+    .dot{ width:8px; height:8px; border-radius:50%; background:var(--success) }
+
+    /* ========= Utility ========= */
+    .row{ display:flex; gap:10px; align-items:center }
+    .muted{ color:var(--muted) }
+    .divider{ height:1px; background:var(--soft); margin:10px 0 }
+    .hidden{ display:none !important }
+  </style>
+</head>
+<body>
+  <!-- ========= TOPBAR ========= -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M13.5 3h-3A7.5 7.5 0 003 10.5v3A7.5 7.5 0 0010.5 21h3A7.5 7.5 0 0021 13.5v-3A7.5 7.5 0 0013.5 3Zm0 2A5.5 5.5 0 0120 10.5v3A5.5 5.5 0 0113.5 19h-3A5.5 5.5 0 015 13.5v-3A5.5 5.5 0 0110.5 5h3Z"/></svg>
+      </div>
+      Mini Facebook
+    </div>
+    <div class="search">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 110-15 7.5 7.5 0 010 15Z"/></svg>
+        <input id="searchInput" placeholder="Tìm kiếm bài viết, người dùng..." />
+      </div>
+    </div>
+    <nav class="nav-icons">
+      <button class="icon-btn" title="Trang chủ" aria-label="Trang chủ">🏠</button>
+      <button class="icon-btn" title="Bạn bè" aria-label="Bạn bè">👥</button>
+      <button class="icon-btn" title="Thông báo" aria-label="Thông báo">🔔</button>
+      <button class="icon-btn" title="Tạo" aria-label="Tạo" id="openComposer">➕</button>
+    </nav>
+  </header>
+
+  <main class="app">
+    <!-- ========= LEFT: SIDEBAR ========= -->
+    <aside class="sidebar">
+      <div class="card">
+        <div class="card-header"><strong>Lối tắt</strong></div>
+        <div class="card-body">
+          <nav class="menu">
+            <a href="#"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 10l9-7 9 7v10a2 2 0 0 1-2 2h-4v-6H9v6H5a2 2 0 0 1-2-2z"/></svg> Bảng tin</a>
+            <a href="#"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm-7 9a7 7 0 0 1 14 0z"/></svg> Trang cá nhân</a>
+            <a href="#"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 6h16v12H4zM2 4h20v2H2zm0 14h20v2H2z"/></svg> Nhóm</a>
+            <a href="#"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 4h18v14H3zM6 20h12v-2H6z"/></svg> Video</a>
+          </nav>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><strong>Gợi ý theo dõi</strong></div>
+        <div class="card-body">
+          <div class="row"><div class="avatar" style="width:36px;height:36px"></div> <div>
+            <div><strong>Design Lab</strong></div>
+            <div class="muted">Trang</div>
+          </div> <button class="btn" onclick="alert('Đã theo dõi!')">Theo dõi</button></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ========= CENTER: FEED ========= -->
+    <section>
+      <!-- Stories -->
+      <div class="card">
+        <div class="card-body">
+          <div class="stories" id="stories">
+            <div class="story">
+              <img src="https://images.unsplash.com/photo-1516259762381-22954d7d3ad2?q=80&w=1200&auto=format&fit=crop" alt="story"/>
+              <div class="label">Kỷ niệm</div>
+            </div>
+            <div class="story">
+              <img src="https://images.unsplash.com/photo-1517817748498-9fdb25ecf0b8?q=80&w=1200&auto=format&fit=crop" alt="story"/>
+              <div class="label">Du lịch</div>
+            </div>
+            <div class="story">
+              <img src="https://images.unsplash.com/photo-1514514921470-2e0f62f2b4f1?q=80&w=1200&auto=format&fit=crop" alt="story"/>
+              <div class="label">Bạn bè</div>
+            </div>
+            <div class="story">
+              <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1200&auto=format&fit=crop" alt="story"/>
+              <div class="label">Đồ ăn</div>
+            </div>
+            <div class="story">
+              <img src="https://images.unsplash.com/photo-1518779578993-ec3579fee39f?q=80&w=1200&auto=format&fit=crop" alt="story"/>
+              <div class="label">Thú cưng</div>
+            </div>
+            <div class="story">
+              <img src="https://images.unsplash.com/photo-1520974735194-9d36aa9f623b?q=80&w=1200&auto=format&fit=crop" alt="story"/>
+              <div class="label">Âm nhạc</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Composer inline -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-body composer">
+          <div class="avatar"></div>
+          <div>
+            <input id="composerText" placeholder="Bạn đang nghĩ gì?" />
+            <div class="chips">
+              <span class="chip">Ảnh/Video</span>
+              <span class="chip">Cảm xúc</span>
+              <span class="chip">Gắn thẻ</span>
+            </div>
+            <div class="composer-actions">
+              <button class="btn" id="clearComposer">Xoá</button>
+              <button class="btn primary" id="postNow">Đăng</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feed posts -->
+      <div id="feed"></div>
+    </section>
+
+    <!-- ========= RIGHT: CONTACTS ========= -->
+    <aside class="contacts">
+      <div class="card">
+        <div class="card-header"><strong>Người liên hệ</strong></div>
+        <div class="card-body">
+          <div class="contact-item"><span class="dot"></span> Lê Anh Tú</div>
+          <div class="contact-item"><span class="dot"></span> An Nguyễn</div>
+          <div class="contact-item"><span class="dot"></span> Minh Châu</div>
+          <div class="contact-item"><span class="dot"></span> Phương Trần</div>
+          <div class="contact-item"><span class="dot"></span> Hana</div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ========= MODAL COMPOSER (quick create) ========= -->
+  <dialog id="composerModal" style="border:none; border-radius:16px; max-width:720px; width:96%; background:var(--card); color:var(--text); box-shadow: var(--shadow)">
+    <form method="dialog" class="card" style="margin:0">
+      <div class="card-header row" style="justify-content:space-between">
+        <strong>Tạo bài viết</strong>
+        <button id="closeModal" class="btn">✕</button>
+      </div>
+      <div class="card-body" style="display:grid; gap:10px">
+        <div class="row">
+          <div class="avatar" style="width:40px;height:40px"></div>
+          <div>
+            <div style="font-weight:700">Bạn</div>
+            <div class="muted">Công khai · 🕒 Bây giờ</div>
+          </div>
+        </div>
+        <textarea id="modalText" rows="4" placeholder="Hãy kể điều gì đó thú vị..."></textarea>
+        <input id="modalImage" placeholder="Dán URL ảnh (tùy chọn)"/>
+        <div class="row" style="justify-content:flex-end">
+          <button class="btn" value="cancel">Huỷ</button>
+          <button class="btn primary" id="createPost" value="default">Đăng</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    // ========= Tiny "State" ========= //
+    const feedEl = document.getElementById('feed');
+    const composerText = document.getElementById('composerText');
+    const clearComposer = document.getElementById('clearComposer');
+    const postNow = document.getElementById('postNow');
+    const searchInput = document.getElementById('searchInput');
+
+    const modal = document.getElementById('composerModal');
+    const openComposer = document.getElementById('openComposer');
+    const closeModal = document.getElementById('closeModal');
+    const modalText = document.getElementById('modalText');
+    const modalImage = document.getElementById('modalImage');
+    const createPost = document.getElementById('createPost');
+
+    // Seed data
+    const seedPosts = [
+      { id: crypto.randomUUID(), name:'Minh Châu', time: Date.now()-3*60*60*1000, text:'Cuối tuần này đi trekking không mọi người? 🗻', image:'https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?q=80&w=1200&auto=format&fit=crop', likes: 12, comments:[{name:'Hana', text:'Tham gia nè!'}] },
+      { id: crypto.randomUUID(), name:'An Nguyễn', time: Date.now()-22*60*60*1000, text:'Pha cà phê mới học được, thơm quá 😍', image:'https://images.unsplash.com/photo-1509042239860-f550ce710b93?q=80&w=1200&auto=format&fit=crop', likes: 33, comments:[{name:'Tú', text:'Cho xin công thức!'}] },
+      { id: crypto.randomUUID(), name:'Bạn', time: Date.now()-2*24*60*60*1000, text:'Chào mừng đến Mini Facebook – bản thu nhỏ nhưng vui!', image:'', likes: 7, comments:[] },
+    ];
+
+    const STORE_KEY = 'mini-fb-posts-v1';
+    function loadPosts(){
+      try{ return JSON.parse(localStorage.getItem(STORE_KEY)) || seedPosts }catch{ return seedPosts }
+    }
+    function savePosts(posts){ localStorage.setItem(STORE_KEY, JSON.stringify(posts)) }
+
+    let posts = loadPosts();
+
+    // ========= Helpers ========= //
+    const fmtTime = (t)=>{
+      const diff = Date.now()-t; const m = 60*1000, h=60*m, d=24*h;
+      if(diff < m) return 'Vừa xong';
+      if(diff < h) return Math.floor(diff/m)+ ' phút';
+      if(diff < d) return Math.floor(diff/h)+ ' giờ';
+      const date = new Date(t); return date.toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit'}) + ' · ' + date.toLocaleDateString('vi-VN');
+    }
+
+    function el(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstElementChild }
+
+    // ========= Render Post ========= //
+    function renderPost(p){
+      const node = el(`
+        <article class="card" data-id="${p.id}">
+          <div class="card-body">
+            <div class="post-header">
+              <div class="avatar" style="width:40px;height:40px"></div>
+              <div>
+                <div class="name">${p.name}</div>
+                <div class="meta">${fmtTime(p.time)} · Công khai</div>
+              </div>
+            </div>
+            <div class="post-content">${escapeHTML(p.text)}</div>
+            ${p.image ? `<div class="post-media"><img src="${p.image}" alt="image"/></div>`: ''}
+            <div class="divider"></div>
+            <div class="row counts">
+              <div>👍 <span class="like-count">${p.likes||0}</span></div>
+              <div><span class="comment-count">${p.comments?.length||0}</span> bình luận</div>
+            </div>
+          </div>
+          <div class="card-footer">
+            <div class="post-actions">
+              <button class="action like-btn">👍 Thích</button>
+              <button class="action cmt-btn">💬 Bình luận</button>
+              <button class="action share-btn">↗️ Chia sẻ</button>
+            </div>
+          </div>
+          <div class="card-body comments-wrap hidden">
+            <div class="comments"></div>
+            <div class="row" style="margin-top:6px">
+              <input class="cmt-input" placeholder="Viết bình luận..."/>
+              <button class="btn" style="white-space:nowrap">Gửi</button>
+            </div>
+          </div>
+        </article>
+      `);
+
+      // Attach events
+      const likeBtn = node.querySelector('.like-btn');
+      const likeCount = node.querySelector('.like-count');
+      let liked = false;
+      likeBtn.addEventListener('click', ()=>{
+        liked = !liked; likeBtn.classList.toggle('active', liked);
+        const delta = liked ? 1 : -1; p.likes = (p.likes||0) + delta; likeCount.textContent = p.likes;
+        persist(p.id, {likes:p.likes});
+      });
+
+      const cmtWrap = node.querySelector('.comments-wrap');
+      const cmtBtn = node.querySelector('.cmt-btn');
+      const cmtList = node.querySelector('.comments');
+      const cmtInput = node.querySelector('.cmt-input');
+      const cmtSend = node.querySelector('.comments-wrap .btn');
+      const cmtCount = node.querySelector('.comment-count');
+
+      cmtBtn.addEventListener('click', ()=>{ cmtWrap.classList.toggle('hidden'); cmtInput?.focus(); });
+      (p.comments||[]).forEach(c=> cmtList.appendChild(renderComment(c)) );
+
+      cmtSend.addEventListener('click', ()=>{
+        const text = cmtInput.value.trim(); if(!text) return;
+        const c = {name:'Bạn', text};
+        p.comments = p.comments || []; p.comments.push(c);
+        cmtList.appendChild(renderComment(c));
+        cmtInput.value='';
+        cmtCount.textContent = p.comments.length;
+        persist(p.id, {comments:p.comments});
+      });
+
+      // Share (demo)
+      const shareBtn = node.querySelector('.share-btn');
+      shareBtn.addEventListener('click', async ()=>{
+        const url = location.href + '#post-' + p.id;
+        if(navigator.share){ try{ await navigator.share({title:'Mini Facebook', text:p.text, url}); }catch{} }
+        else { navigator.clipboard.writeText(url); alert('Đã sao chép link bài viết'); }
+      });
+
+      return node;
+    }
+
+    function renderComment(c){
+      const node = el(`
+        <div class="comment">
+          <div class="avatar" style="width:36px;height:36px"></div>
+          <div class="bubble">
+            <div style="font-weight:700">${c.name}</div>
+            <div>${escapeHTML(c.text)}</div>
+          </div>
+        </div>
+      `);
+      return node;
+    }
+
+    function mount(){
+      feedEl.innerHTML='';
+      posts.forEach(p=> feedEl.appendChild(renderPost(p)) );
+    }
+
+    function persist(id, patch){
+      posts = posts.map(p=> p.id===id ? {...p, ...patch} : p);
+      savePosts(posts);
+    }
+
+    // ========= Create Post ========= //
+    function createNewPost(text, image){
+      const p = { id: crypto.randomUUID(), name:'Bạn', time: Date.now(), text, image: image||'', likes:0, comments:[] };
+      posts.unshift(p); savePosts(posts); mount();
+      // scroll to top smoothly
+      window.scrollTo({ top:0, behavior:'smooth' });
+    }
+
+    postNow.addEventListener('click', ()=>{
+      const v = composerText.value.trim(); if(!v) return; createNewPost(v);
+      composerText.value='';
+    });
+    clearComposer.addEventListener('click', ()=> composerText.value='' );
+
+    openComposer.addEventListener('click', ()=>{ modal.showModal(); setTimeout(()=> modalText.focus(), 50); });
+    closeModal.addEventListener('click', (e)=>{ e.preventDefault(); modal.close(); });
+
+    createPost.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const txt = modalText.value.trim(); const img = modalImage.value.trim();
+      if(!txt && !img){ alert('Hãy nhập nội dung hoặc thêm ảnh.'); return; }
+      createNewPost(txt, img);
+      modal.close(); modalText.value=''; modalImage.value='';
+    });
+
+    // ========= Search (filter by text) ========= //
+    searchInput.addEventListener('input', ()=>{
+      const q = searchInput.value.trim().toLowerCase();
+      if(!q){ mount(); return; }
+      const filtered = posts.filter(p=> (p.text+p.name).toLowerCase().includes(q));
+      feedEl.innerHTML=''; filtered.forEach(p=> feedEl.appendChild(renderPost(p)) );
+    });
+
+    // ========= Security: escape HTML ========= //
+    function escapeHTML(str){ return str.replace(/[&<>\"']/g, s=> ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[s]) ) }
+
+    // First render
+    mount();
+  </script>
+</body>
+</html>
