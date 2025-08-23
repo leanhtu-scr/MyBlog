@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini Social — demo</title>
+  <style>
+    :root{--accent:#2b6ef6;--bg:#0b0b0b;--card:#111;--muted:#999}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Arial;background:#000;color:#eee}
+    /* background video full */
+    #bgVideo{position:fixed;right:0;bottom:0;min-width:100%;min-height:100%;width:auto;height:auto;z-index:-1;object-fit:cover;opacity:0.4}
+
+    .app{display:flex;flex-direction:column;min-height:100vh;backdrop-filter: blur(4px)}
+    header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;background:linear-gradient(90deg,rgba(0,0,0,0.6),transparent);position:sticky;top:0;z-index:5}
+    header h1{margin:0;font-size:18px}
+    .controls{display:flex;gap:8px;align-items:center}
+    button, input[type=text], input[type=password], textarea{font-size:14px}
+
+    main{display:flex;gap:12px;padding:16px}
+    /* left column: music */
+    .left{width:220px;position:fixed;left:12px;bottom:12px;z-index:6}
+    .music-card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:8px;border-radius:10px;backdrop-filter:blur(6px);box-shadow:0 6px 18px rgba(0,0,0,0.6)}
+    .music-list{max-height:160px;overflow:auto;margin:6px 0}
+    .music-item{display:flex;justify-content:space-between;align-items:center;padding:6px;border-radius:6px}
+
+    /* center: posts */
+    .center{flex:1;display:flex;flex-direction:column;align-items:center}
+    .post-view{width:720px;max-width:95%;min-height:400px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:18px;border-radius:12px;position:relative;overflow:hidden}
+    .post-content{min-height:220px;display:flex;flex-direction:column;gap:8px}
+    .post-meta{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted)}
+    .post-actions{display:flex;gap:8px;align-items:center}
+
+    /* comment panel like tik tok */
+    .comments{position:absolute;right:0;top:0;width:320px;height:100%;padding:10px;display:flex;flex-direction:column;gap:8px;background:linear-gradient(90deg,rgba(0,0,0,0.3),transparent);backdrop-filter:blur(6px)}
+    .comment-list{flex:1;overflow:auto;display:flex;flex-direction:column-reverse;gap:6px;padding-right:6px}
+    .comment{padding:6px;border-radius:8px;background:rgba(0,0,0,0.35);font-size:13px}
+    /* faded old comments: we will add gradient overlay */
+    .comments::after{content:"";position:absolute;left:0;right:0;bottom:0;height:40%;pointer-events:none;background:linear-gradient(180deg,transparent,rgba(0,0,0,0.6))}
+
+    /* post list navigation indicators */
+    .nav-hint{position:absolute;left:12px;top:12px;font-size:13px;color:var(--muted)}
+    .swipe-area{position:absolute;inset:0}
+
+    /* small mobile support */
+    @media(max-width:900px){.comments{display:none}.left{display:none}.post-view{width:95%}}
+
+    /* simple modal */
+    .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);z-index:90}
+    .modal .box{background:#111;padding:14px;border-radius:10px;width:420px;max-width:95%}
+
+    /* toast */
+    .toast{position:fixed;left:50%;transform:translateX(-50%);top:18px;background:linear-gradient(90deg,var(--accent),#4b4bff);padding:10px 14px;border-radius:10px;z-index:100;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,0.6)}
+
+    /* reactions */
+    .reactions{display:flex;gap:6px}
+    .reaction-btn{padding:6px;border-radius:20px;background:rgba(255,255,255,0.03);cursor:pointer}
+  </style>
+</head>
+<body>
+  <video id="bgVideo" autoplay muted loop playsinline></video>
+  <div class="app">
+    <header>
+      <h1>Mini Social (demo)</h1>
+      <div class="controls" id="authControls"></div>
+    </header>
+
+    <main>
+      <div class="center" id="mainArea">
+        <!-- Login / Register or App will render here -->
+      </div>
+    </main>
+  </div>
+
+  <!-- music box bottom-left -->
+  <div class="left">
+    <div class="music-card">
+      <div style="font-weight:600;margin-bottom:6px">Playlist</div>
+      <div style="display:flex;gap:6px"><input id="musicUrl" placeholder="Thêm mp3 URL" style="flex:1;padding:6px;border-radius:6px;background:#000;border:1px solid rgba(255,255,255,0.03)" /><button id="addMusic">Add</button></div>
+      <div class="music-list" id="musicList"></div>
+      <audio id="player" controls style="width:100%;margin-top:8px"></audio>
+    </div>
+  </div>
+
+  <!-- small toast area -->
+  <div id="toasts"></div>
+
+  <script>
+    // ---------- Data model helpers ----------
+    const LS_USERS = 'mini_users_v1';
+    const LS_POSTS = 'mini_posts_v1';
+
+    // admin pre-defined, not stored in localStorage ("không để ghi nhớ về tài khoản admin")
+    const ADMIN = { username: 'admin', password: 'admin', role: 'admin' };
+
+    function loadUsers(){
+      try{ return JSON.parse(localStorage.getItem(LS_USERS) || '[]'); }catch(e){return []}
+    }
+    function saveUsers(u){localStorage.setItem(LS_USERS, JSON.stringify(u))}
+
+    function loadPosts(){
+      try{ return JSON.parse(localStorage.getItem(LS_POSTS) || '[]'); }catch(e){return []}
+    }
+    function savePosts(p){localStorage.setItem(LS_POSTS, JSON.stringify(p))}
+
+    // create account (any characters allowed)
+    function createAccount(username, password){
+      if(!username) return {ok:false,msg:'Tên tài khoản không được để trống'};
+      if(username === 'admin') return {ok:false,msg:'Không thể tạo tài khoản admin'}; // reserve admin
+      const users = loadUsers();
+      if(users.find(u=>u.username === username)) return {ok:false,msg:'Tên đã tồn tại'};
+      users.push({username,password,lastPostAt:null});
+      saveUsers(users);
+      return {ok:true};
+    }
+
+    function checkLogin(username,password){
+      if(username === ADMIN.username && password === ADMIN.password){
+        // admin: don't persist into localStorage users, but keep session in sessionStorage
+        return {ok:true,user:{username:ADMIN.username,role:'admin'},save:false}
+      }
+      const users = loadUsers();
+      const u = users.find(x=>x.username === username && x.password === password);
+      if(u) return {ok:true,user:{username:u.username,role:'user'},save:true};
+      return {ok:false,msg:'Tên hoặc mật khẩu không đúng'}
+    }
+
+    // password reset: mã default 0
+    function resetPassword(username,code,newPass){
+      if(String(code) !== '0') return {ok:false,msg:'Mã không đúng'};
+      const users = loadUsers();
+      const idx = users.findIndex(u=>u.username === username);
+      if(idx === -1) return {ok:false,msg:'Không tìm thấy tài khoản'};
+      users[idx].password = newPass;
+      saveUsers(users);
+      return {ok:true};
+    }
+
+    // ---------- Posts logic ----------
+    function addPost(author,content){
+      const posts = loadPosts();
+      const id = 'p_' + Math.random().toString(36).slice(2,9);
+      const post = {id,author,content,ts:Date.now(),reactions:{},comments:[]};
+      posts.unshift(post); // newest first
+      savePosts(posts);
+      return post;
+    }
+
+    function deletePostById(id){
+      let posts = loadPosts();
+      posts = posts.filter(p=>p.id !== id);
+      savePosts(posts);
+    }
+
+    function cleanupOldPosts(){
+      let posts = loadPosts();
+      const cutoff = Date.now() - 24*3600*1000;
+      const original = posts.length;
+      posts = posts.filter(p=>p.ts > cutoff);
+      if(posts.length !== original) savePosts(posts);
+    }
+
+    // reactions
+    function toggleReact(postId, emoji, username){
+      const posts = loadPosts();
+      const p = posts.find(x=>x.id===postId);
+      if(!p) return;
+      if(!p.reactions[emoji]) p.reactions[emoji] = [];
+      const idx = p.reactions[emoji].indexOf(username);
+      if(idx === -1) p.reactions[emoji].push(username); else p.reactions[emoji].splice(idx,1);
+      savePosts(posts);
+    }
+
+    function addComment(postId, username, text){
+      const posts = loadPosts();
+      const p = posts.find(x=>x.id===postId);
+      if(!p) return;
+      p.comments.push({id:'c_'+Math.random().toString(36).slice(2,8),author:username,text,ts:Date.now()});
+      savePosts(posts);
+    }
+
+    // ---------- UI rendering & state ----------
+    const root = document.getElementById('mainArea');
+    const authControls = document.getElementById('authControls');
+    let currentUser = null; // {username,role}
+
+    function saveSession(user, persist){
+      // admin: don't remember in localStorage; use sessionStorage only
+      if(user.username === 'admin'){
+        sessionStorage.setItem('mini_session', JSON.stringify(user));
+      } else {
+        // default: sessionStorage again to avoid 'remember me' unless we want to persist
+        sessionStorage.setItem('mini_session', JSON.stringify(user));
+      }
+      currentUser = user;
+      renderHeader();
+    }
+
+    function loadSession(){
+      const s = sessionStorage.getItem('mini_session');
+      if(s) currentUser = JSON.parse(s);
+    }
+
+    function clearSession(){
+      sessionStorage.removeItem('mini_session');
+      currentUser = null;
+      renderHeader();
+      renderLanding();
+    }
+
+    function renderHeader(){
+      authControls.innerHTML = '';
+      if(currentUser){
+        const name = document.createElement('div'); name.textContent = currentUser.username; name.style.fontWeight='600';
+        const btnLogout = document.createElement('button'); btnLogout.textContent='Logout'; btnLogout.onclick = ()=>{clearSession()};
+        authControls.appendChild(name); authControls.appendChild(btnLogout);
+      } else {
+        const btnLogin = document.createElement('button'); btnLogin.textContent='Đăng nhập'; btnLogin.onclick = ()=>renderLogin();
+        const btnReg = document.createElement('button'); btnReg.textContent='Đăng ký'; btnReg.onclick = ()=>renderRegister();
+        authControls.appendChild(btnLogin); authControls.appendChild(btnReg);
+      }
+    }
+
+    // Landing screen: show login/register if not logged in, else show app
+    function renderLanding(){
+      if(!currentUser){ renderLogin(); } else { renderApp(); }
+    }
+
+    // ----- Forms -----
+    function renderLogin(prefill){
+      root.innerHTML = '';
+      const box = document.createElement('div'); box.className='post-view'; box.style.maxWidth='420px';
+      box.innerHTML = `
+        <div style="font-size:18px;font-weight:700;margin-bottom:6px">Đăng nhập</div>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Dùng admin/admin để đăng nhập với quyền cao nhất.</div>
+        <div><input id="loginUser" placeholder="Tên tài khoản" style="width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/></div>
+        <div style="margin-top:8px"><input id="loginPass" type="password" placeholder="Mật khẩu" style="width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/></div>
+        <div style="display:flex;gap:8px;margin-top:12px;"><button id="doLogin">Đăng nhập</button><button id="toRegister">Đăng ký</button><button id="forgotBtn">Quên mật khẩu</button></div>
+      `;
+      root.appendChild(box);
+      if(prefill) document.getElementById('loginUser').value = prefill;
+      document.getElementById('toRegister').onclick = ()=>renderRegister();
+      document.getElementById('doLogin').onclick = ()=>{
+        const u = document.getElementById('loginUser').value;
+        const p = document.getElementById('loginPass').value;
+        const r = checkLogin(u,p);
+        if(r.ok){ saveSession(r.user, r.save); showToast('Đăng nhập thành công: '+r.user.username); renderApp(); }
+        else alert(r.msg);
+      }
+      document.getElementById('forgotBtn').onclick = ()=>renderForgot();
+      renderHeader();
+    }
+
+    function renderRegister(){
+      root.innerHTML = '';
+      const box = document.createElement('div'); box.className='post-view'; box.style.maxWidth='520px';
+      box.innerHTML = `
+        <div style="font-size:18px;font-weight:700;margin-bottom:6px">Tạo tài khoản</div>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Tên tài khoản có thể chứa tất cả kí tự. (Không thể tạo 'admin')</div>
+        <div><input id="regUser" placeholder="Tên tài khoản" style="width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/></div>
+        <div style="margin-top:8px"><input id="regPass" type="password" placeholder="Mật khẩu" style="width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/></div>
+        <div style="display:flex;gap:8px;margin-top:12px;"><button id="doReg">Tạo</button><button id="toLogin">Đã có tài khoản</button></div>
+      `;
+      root.appendChild(box);
+      document.getElementById('toLogin').onclick = ()=>renderLogin();
+      document.getElementById('doReg').onclick = ()=>{
+        const u = document.getElementById('regUser').value;
+        const p = document.getElementById('regPass').value;
+        const res = createAccount(u,p);
+        if(res.ok){ showToast('Tạo tài khoản thành công! Vui lòng đăng nhập.'); renderLogin(u); }
+        else alert(res.msg);
+      }
+      renderHeader();
+    }
+
+    function renderForgot(){
+      root.innerHTML = '';
+      const box = document.createElement('div'); box.className='post-view'; box.style.maxWidth='520px';
+      box.innerHTML = `
+        <div style="font-size:18px;font-weight:700;margin-bottom:6px">Quên mật khẩu</div>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Mã mặc định để đặt lại là 0</div>
+        <div><input id="fpUser" placeholder="Tên tài khoản" style="width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/></div>
+        <div style="margin-top:8px"><input id="fpCode" placeholder="Mã (mặc định 0)" style="width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/></div>
+        <div style="margin-top:8px"><input id="fpNew" placeholder="Mật khẩu mới" style="width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/></div>
+        <div style="display:flex;gap:8px;margin-top:12px;"><button id="doReset">Đặt lại</button><button id="toLogin2">Đăng nhập</button></div>
+      `;
+      root.appendChild(box);
+      document.getElementById('toLogin2').onclick = ()=>renderLogin();
+      document.getElementById('doReset').onclick = ()=>{
+        const user = document.getElementById('fpUser').value;
+        const code = document.getElementById('fpCode').value;
+        const np = document.getElementById('fpNew').value;
+        const res = resetPassword(user,code,np);
+        if(res.ok){ showToast('Đặt lại mật khẩu thành công. Vui lòng đăng nhập.'); renderLogin(user); } else alert(res.msg);
+      }
+      renderHeader();
+    }
+
+    // ---- Main app view after login ----
+    let displayedIndex = 0; // which post index is shown in main area
+    function renderApp(){
+      cleanupOldPosts();
+      root.innerHTML = '';
+      const container = document.createElement('div'); container.style.display='flex'; container.style.flexDirection='column'; container.style.gap='12px'; container.style.alignItems='center';
+
+      // Top controls: set bg video URL
+      const topCard = document.createElement('div'); topCard.className='post-view'; topCard.style.maxWidth='720px'; topCard.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="font-weight:700">Giao diện đăng bài</div>
+          <div style="font-size:13px;color:var(--muted)">Bạn: <span id="whoAmI">${currentUser.username}</span> | Quyền: ${currentUser.role}</div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <input id="bgUrl" placeholder="Đặt đường dẫn video mp4 cho background" style="flex:1;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)" />
+          <button id="setBg">Áp dụng</button>
+        </div>
+      `;
+      container.appendChild(topCard);
+
+      // Post box (for admins unlimited, others 1 per day)
+      const postBox = document.createElement('div'); postBox.className='post-view'; postBox.style.maxWidth='720px';
+      postBox.innerHTML = `
+        <div style="font-weight:700;margin-bottom:6px">Đăng bài</div>
+        <textarea id="postText" placeholder="Viết nội dung của bạn..." style="width:100%;height:110px;padding:10px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.03)"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px"><button id="btnPost">Đăng</button><div style="color:var(--muted);font-size:13px;align-self:center">(Người thường chỉ được 1 bài/ngày)</div></div>
+      `;
+      container.appendChild(postBox);
+
+      // Post view area center
+      const postView = document.createElement('div'); postView.className='post-view'; postView.id='postView';
+      postView.innerHTML = `
+        <div class="nav-hint">Dùng vuốt/trượt để xem trước/sau</div>
+        <div class="post-content" id="postContent"></div>
+        <div class="post-meta" style="margin-top:6px"><div id="postAuthor"></div><div id="postTime"></div></div>
+        <div class="post-actions" style="margin-top:8px"></div>
+        <div class="comments" id="commentsPanel"><div style="font-weight:700">Bình luận</div><div class="comment-list" id="commentList"></div>
+          <div style="display:flex;gap:6px"><input id="commentInput" placeholder="Gửi bình luận..." style="flex:1;padding:6px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.05)"/><button id="sendComment">Gửi</button></div>
+        </div>
+        <div class="swipe-area" id="swipeArea"></div>
+      `;
+      container.appendChild(postView);
+
+      root.appendChild(container);
+      renderHeader();
+
+      // set background from saved preference
+      const savedBg = localStorage.getItem('mini_bg_url');
+      if(savedBg) { document.getElementById('bgUrl').value = savedBg; setBgVideo(savedBg); }
+
+      document.getElementById('setBg').onclick = ()=>{
+        const url = document.getElementById('bgUrl').value.trim(); localStorage.setItem('mini_bg_url',url); setBgVideo(url); showToast('Đã áp dụng background');
+      }
+
+      // posting
+      document.getElementById('btnPost').onclick = ()=>{
+        const txt = document.getElementById('postText').value.trim();
+        if(!txt) return alert('Nội dung rỗng');
+        // check posting limit for non-admin: 1 per day
+        if(currentUser.role !== 'admin'){
+          const users = loadUsers();
+          const u = users.find(x=>x.username === currentUser.username);
+          const last = u && u.lastPostAt ? new Date(u.lastPostAt) : null;
+          if(last){
+            const diff = Date.now() - last.getTime();
+            if(diff < 24*3600*1000) return alert('Bạn chỉ được 1 bài mỗi ngày');
+          }
+        }
+        // confirm modal
+        if(confirm('Bạn có muốn đăng không? (Có để đăng, Không để huỷ)')){
+          const post = addPost(currentUser.username, txt);
+          // update user's lastPostAt
+          if(currentUser.role !== 'admin'){
+            const users = loadUsers(); const idx = users.findIndex(x=>x.username===currentUser.username); if(idx>-1){users[idx].lastPostAt = new Date().toISOString(); saveUsers(users);}          
+          }
+          document.getElementById('postText').value = '';
+          showToast('Đã đăng bài');
+          loadAndShowPosts();
+        }
+      }
+
+      // load posts and show
+      function loadAndShowPosts(){
+        const posts = loadPosts();
+        if(posts.length===0){
+          document.getElementById('postContent').innerHTML = '<div style="text-align:center;color:var(--muted)">Chưa có bài đăng</div>';
+          document.getElementById('postAuthor').textContent=''; document.getElementById('postTime').textContent=''; document.getElementById('commentList').innerHTML='';
+          return;
+        }
+        if(displayedIndex >= posts.length) displayedIndex = 0; // wrap
+        const p = posts[displayedIndex];
+        document.getElementById('postContent').innerHTML = `<div style="white-space:pre-wrap">${escapeHtml(p.content)}</div>`;
+        document.getElementById('postAuthor').textContent = p.author;
+        document.getElementById('postTime').textContent = new Date(p.ts).toLocaleString();
+
+        // actions
+        const actions = document.querySelector('.post-actions'); actions.innerHTML='';
+        // reactions
+        const emojis = ['❤️','🔥','😂','😮','😢'];
+        const rdiv = document.createElement('div'); rdiv.className='reactions';
+        emojis.forEach(e=>{
+          const btn = document.createElement('div'); btn.className='reaction-btn'; btn.textContent = e + ' ' + (p.reactions[e] ? p.reactions[e].length : '');
+          btn.onclick = ()=>{ if(!currentUser) return alert('Vui lòng đăng nhập'); toggleReact(p.id,e,currentUser.username); loadAndShowPosts(); }
+          rdiv.appendChild(btn);
+        });
+        actions.appendChild(rdiv);
+
+        // delete button
+        const del = document.createElement('button'); del.textContent='Xoá bài';
+        del.onclick = ()=>{
+          if(currentUser.role === 'admin'){ if(confirm('Admin sẽ xoá bài này?')){ deletePostById(p.id); showToast('Bài đã bị xoá'); loadAndShowPosts(); }}
+          else if(p.author === currentUser.username){ if(confirm('Bạn muốn xoá bài của mình?')){ deletePostById(p.id); showToast('Bài đã bị xoá'); loadAndShowPosts(); }}
+          else alert('Bạn không thể xoá bài này');
+        }
+        actions.appendChild(del);
+
+        // admin: delete all
+        if(currentUser.role === 'admin'){
+          const delAll = document.createElement('button'); delAll.textContent='Admin: Xoá tất cả'; delAll.onclick = ()=>{ if(confirm('Xoá tất cả bài đăng?')){ savePosts([]); showToast('Đã xoá tất cả'); loadAndShowPosts(); }}; actions.appendChild(delAll);
+        }
+
+        // comments
+        const commentList = document.getElementById('commentList'); commentList.innerHTML = '';
+        // show newest at bottom as tik tok style (scrollable, newest appended at bottom). We'll display reverse to allow scroll to bottom
+        p.comments.forEach(c=>{
+          const div = document.createElement('div'); div.className='comment'; div.innerHTML = `<div style="font-weight:700;font-size:13px">${escapeHtml(c.author)}</div><div style="font-size:13px">${escapeHtml(c.text)}</div><div style="font-size:11px;color:var(--muted);margin-top:4px">${new Date(c.ts).toLocaleTimeString()}</div>`;
+          commentList.appendChild(div);
+        });
+
+        document.getElementById('sendComment').onclick = ()=>{
+          const txt = document.getElementById('commentInput').value.trim(); if(!txt) return;
+          if(!currentUser) return alert('Vui lòng đăng nhập');
+          addComment(p.id,currentUser.username,txt);
+          document.getElementById('commentInput').value = '';
+          loadAndShowPosts();
+          // scroll commentList to bottom
+          commentList.scrollTop = commentList.scrollHeight;
+        }
+
+      }
+
+      loadAndShowPosts();
+
+      // swipe handlers left/right to navigate
+      const swipe = document.getElementById('swipeArea');
+      let startX=null;
+      swipe.addEventListener('touchstart',(e)=>{ startX = e.changedTouches[0].clientX; });
+      swipe.addEventListener('touchend',(e)=>{ if(startX===null) return; const dx = e.changedTouches[0].clientX - startX; if(Math.abs(dx) < 40) return; if(dx < 0) { // left -> next
+          displayedIndex = Math.min(loadPosts().length-1, displayedIndex+1);
+        } else { displayedIndex = Math.max(0, displayedIndex-1); }
+        loadAndShowPosts(); startX=null;
+      });
+      // mouse drag for desktop
+      let md=false; swipe.addEventListener('mousedown',(e)=>{ md=true; startX=e.clientX; });
+      document.addEventListener('mouseup',(e)=>{ if(!md) return; md=false; const dx = e.clientX - startX; if(Math.abs(dx)<40) return; if(dx<0) displayedIndex = Math.min(loadPosts().length-1, displayedIndex+1); else displayedIndex = Math.max(0, displayedIndex-1); loadAndShowPosts(); startX=null; });
+
+      // auto-cleanup every minute
+      setInterval(()=>{ cleanupOldPosts(); loadAndShowPosts(); },60*1000);
+
+    }
+
+    // ---------- Music playlist ----------
+    function renderMusicList(){
+      const list = loadMusic();
+      const el = document.getElementById('musicList'); if(!el) return; el.innerHTML = '';
+      list.forEach((m,i)=>{
+        const div = document.createElement('div'); div.className='music-item';
+        div.innerHTML = `<div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;max-width:120px">${m}</div><div style="display:flex;gap:6px"><button data-i="${i}" class="playBtn">▶</button><button data-i="${i}" class="delM">✖</button></div>`;
+        el.appendChild(div);
+      });
+      // attach handlers
+      document.querySelectorAll('.playBtn').forEach(b=>b.onclick = (e)=>{ const i=+b.dataset.i; const list = loadMusic(); const url = list[i]; document.getElementById('player').src = url; document.getElementById('player').play(); })
+      document.querySelectorAll('.delM').forEach(b=>b.onclick=(e)=>{ const i=+b.dataset.i; let list=loadMusic(); list.splice(i,1); saveMusic(list); renderMusicList(); })
+    }
+
+    function loadMusic(){ try{ return JSON.parse(localStorage.getItem('mini_music_v1')||'[]'); }catch(e){return []} }
+    function saveMusic(m){ localStorage.setItem('mini_music_v1',JSON.stringify(m)); }
+
+    document.getElementById('addMusic').onclick = ()=>{ const url = document.getElementById('musicUrl').value.trim(); if(!url) return; const list=loadMusic(); list.push(url); saveMusic(list); document.getElementById('musicUrl').value=''; renderMusicList(); }
+    renderMusicList();
+
+    // ---------- background video ----------
+    function setBgVideo(url){ const v = document.getElementById('bgVideo'); if(!url){ v.src=''; v.style.display='none'; return; } v.src = url; v.style.display='block'; }
+
+    // ---------- utilities ----------
+    function showToast(text, time=3000){ const id='t_'+Math.random().toString(36).slice(2,8); const d=document.createElement('div'); d.className='toast'; d.id=id; d.textContent = text; document.getElementById('toasts').appendChild(d); setTimeout(()=>{ d.style.transition='opacity 400ms'; d.style.opacity=0; setTimeout(()=>d.remove(),450); },time); }
+
+    function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
+
+    // ---------- periodic "Bạn thật đẹp" notification every 10 minutes ----------
+    function randomBeautiful(){
+      const users = loadUsers();
+      if(users.length===0) return; // no user
+      const idx = Math.floor(Math.random()*users.length); const u=users[idx];
+      // show toast across site
+      showToast(`${u.username} — bạn thật đẹp 💖` , 6000);
+    }
+    // schedule every 10 minutes (600000 ms)
+    setInterval(randomBeautiful, 10*60*1000);
+
+    // also trigger a random notification on page load if users exist
+    setTimeout(randomBeautiful, 3000);
+
+    // ---------- initial load ----------
+    loadSession(); cleanupOldPosts(); renderLanding();
+
+    // ---------- helper: auto-delete posts older than 24 hours on load ----------
+    cleanupOldPosts();
+
+    // Expose some functions for debugging in console
+    window._mini = {loadUsers,loadPosts,addPost,deletePostById};
+  </script>
+</body>
+</html>
