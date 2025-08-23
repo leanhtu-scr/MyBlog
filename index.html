@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Social</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f9fafb; }
+    header { background: #fff; padding: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; }
+    .btn { background: #007bff; color: white; padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; }
+    .card { background: #fff; margin: 15px; padding: 15px; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .reactions span { margin: 5px; cursor: pointer; }
+    .comment-box { margin-top: 10px; }
+    .comment-input { width: 80%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; }
+    .comment-btn { padding: 8px 14px; margin-left: 5px; border: none; border-radius: 6px; background: #28a745; color: #fff; cursor: pointer; }
+    .auth-box { max-width: 400px; margin: 40px auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    .auth-box input { width: 100%; margin: 8px 0; padding: 10px; border-radius: 8px; border: 1px solid #ccc; }
+    .tabs { display: flex; justify-content: space-around; margin-bottom: 15px; }
+    .tabs button { flex: 1; padding: 10px; border: none; background: #eee; cursor: pointer; border-radius: 8px; }
+    .tabs button.active { background: #007bff; color: white; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>Mini Social</div>
+    <button class="btn" onclick="logout()">Đăng xuất</button>
+  </header>
+
+  <main id="main"></main>
+
+  <script>
+    let currentUser = null;
+    let posts = [
+      { id: 1, author: "admin", content: "Bài đăng mẫu đầu tiên", time: new Date(), reactions: {"👍":0,"❤️":0,"😂":0,"😮":0,"😢":0,"🔥":0,"👏":0,"🎉":0}, comments: [] }
+    ];
+
+    function renderLogin() {
+      document.getElementById("main").innerHTML = `
+        <div class="auth-box">
+          <div class="tabs">
+            <button class="active" onclick="switchTab('login')">Đăng nhập</button>
+            <button onclick="switchTab('register')">Đăng ký</button>
+            <button onclick="switchTab('reset')">Quên mật khẩu</button>
+          </div>
+          <div id="auth-content"></div>
+        </div>`;
+      renderLoginForm();
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelector(`.tabs button[onclick="switchTab('${tab}')"]`).classList.add('active');
+      if(tab==='login') renderLoginForm();
+      if(tab==='register') renderRegisterForm();
+      if(tab==='reset') renderResetForm();
+    }
+
+    function renderLoginForm() {
+      document.getElementById("auth-content").innerHTML = `
+        <input id="login-user" placeholder="Tên tài khoản">
+        <input id="login-pass" type="password" placeholder="Mật khẩu">
+        <button class="btn" style="width:100%" onclick="login()">Đăng nhập</button>`;
+    }
+
+    function renderRegisterForm() {
+      document.getElementById("auth-content").innerHTML = `
+        <input id="reg-user" placeholder="Tên tài khoản (có thể dùng ký tự đặc biệt, dấu , )">
+        <input id="reg-pass" type="password" placeholder="Mật khẩu">
+        <button class="btn" style="width:100%" onclick="register()">Đăng ký</button>`;
+    }
+
+    function renderResetForm() {
+      document.getElementById("auth-content").innerHTML = `
+        <input id="reset-user" placeholder="Tên tài khoản">
+        <input id="reset-code" placeholder="Mã khôi phục (mặc định: 0)">
+        <input id="reset-pass" type="password" placeholder="Mật khẩu mới">
+        <button class="btn" style="width:100%" onclick="resetPass()">Đổi mật khẩu</button>`;
+    }
+
+    function login() {
+      let user = document.getElementById("login-user").value;
+      let pass = document.getElementById("login-pass").value;
+      let saved = localStorage.getItem(user);
+      if(saved && JSON.parse(saved).pass===pass){
+        currentUser=user;
+        renderFeed();
+      } else alert("Sai tài khoản hoặc mật khẩu!");
+    }
+
+    function register() {
+      let user = document.getElementById("reg-user").value;
+      let pass = document.getElementById("reg-pass").value;
+      if(localStorage.getItem(user)) return alert("Tên tài khoản đã tồn tại!");
+      localStorage.setItem(user, JSON.stringify({pass:pass}));
+      alert("Đăng ký thành công, mời đăng nhập!");
+      switchTab('login');
+    }
+
+    function resetPass() {
+      let user=document.getElementById("reset-user").value;
+      let code=document.getElementById("reset-code").value;
+      let pass=document.getElementById("reset-pass").value;
+      let saved=localStorage.getItem(user);
+      if(saved && code==="0"){
+        localStorage.setItem(user, JSON.stringify({pass:pass}));
+        alert("Đổi mật khẩu thành công!");
+        switchTab('login');
+      } else alert("Sai thông tin!");
+    }
+
+    function logout(){ currentUser=null; renderLogin(); }
+
+    function renderFeed(){
+      document.getElementById("main").innerHTML = posts.map(post=>`
+        <div class="card">
+          <b>${post.author}</b> - <small>${post.time.toLocaleString()}</small>
+          <p>${post.content}</p>
+          <div class="reactions">
+            ${Object.keys(post.reactions).map(r=>`<span onclick="react(${post.id},'${r}')">${r} ${post.reactions[r]}</span>`).join(' ')}
+          </div>
+          <div class="comment-box">
+            <div id="comments-${post.id}">${post.comments.map(c=>`<p><b>${c.user}</b>: ${c.text}</p>`).join('')}</div>
+            <input id="cmt-${post.id}" class="comment-input" placeholder="Nhập bình luận và nhấn Enter" onkeypress="if(event.key==='Enter') addComment(${post.id})">
+            <button class="comment-btn" onclick="addComment(${post.id})">Gửi</button>
+          </div>
+        </div>`).join('');
+    }
+
+    function react(id,emoji){
+      let p=posts.find(x=>x.id===id);
+      p.reactions[emoji]++;
+      renderFeed();
+    }
+
+    function addComment(id){
+      let input=document.getElementById("cmt-"+id);
+      if(input.value.trim()!==''){
+        posts.find(x=>x.id===id).comments.push({user:currentUser,text:input.value});
+        input.value='';
+        renderFeed();
+      }
+    }
+
+    renderLogin();
+  </script>
+</body>
+</html>
