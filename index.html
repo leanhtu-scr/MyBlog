@@ -1,773 +1,610 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Mini Social — Firestore (Auth, Follow, Playlists)</title>
-<style>
-  :root{--bg:#0b0b0c;--text:#eaeaea;--muted:rgba(234,234,234,.6);--card:rgba(255,255,255,.03);--accent:#ff3b30;--border:rgba(255,255,255,.06)}
-  [data-theme="light"]{--bg:#f6f6f7;--text:#111;--muted:rgba(0,0,0,.6);--card:rgba(0,0,0,.03);--border:rgba(0,0,0,.08)}
-  *{box-sizing:border-box}
-  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial}
-  header{position:sticky;top:0;z-index:40;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg, rgba(0,0,0,.25), transparent)}
-  .brand{font-weight:800;color:var(--accent)}
-  .app{position:relative;z-index:10;max-width:980px;margin:12px auto;padding:8px}
-  .card{background:var(--card);border-radius:12px;padding:12px;border:1px solid var(--border);box-shadow:0 6px 30px rgba(0,0,0,.25)}
-  .row{display:flex;gap:10px;align-items:center}
-  input,textarea,select,button{font-family:inherit}
-  input,textarea,select{padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);outline:none}
-  textarea{min-height:90px;resize:vertical}
-  .btn{background:transparent;border:1px solid var(--border);padding:8px 10px;border-radius:10px;color:var(--text);cursor:pointer}
-  .btn[disabled]{opacity:.5;cursor:not-allowed}
-  .stage{display:flex;gap:16px;align-items:flex-start}
-  .left{flex:1}
-  .right{width:340px}
-  #feed{max-height:72vh;overflow:auto;padding:8px}
-  .post{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:12px;border-radius:10px;margin-bottom:12px;transition:transform .12s,box-shadow .12s}
-  .post:hover{transform:translateY(-6px);box-shadow:0 18px 44px rgba(0,0,0,.36)}
-  .meta{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:13px}
-  .author{display:flex;align-items:center;gap:10px}
-  .avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--border);flex-shrink:0}
-  .reactions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-  .reaction{padding:6px 10px;border-radius:12px;background:rgba(255,255,255,0.02);cursor:pointer;border:1px solid var(--border);display:inline-flex;align-items:center;gap:8px}
-  .reaction.selected{border-color:var(--accent);box-shadow:0 8px 24px rgba(0,0,0,0.35);transform:scale(1.04)}
-  .commentsToggle{cursor:pointer;color:var(--muted);font-size:13px}
-  .comment-list{display:flex;flex-direction:column-reverse;gap:6px;overflow-y:auto;padding:6px;max-height:160px}
-  .comment{display:flex;gap:8px;align-items:flex-start;background:rgba(255,255,255,0.02);padding:8px;border-radius:8px}
-  .c-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover}
-  .tiny{font-size:12px;color:var(--muted)}
-  .pill{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border)}
-  .music-fixed{position:fixed;left:12px;bottom:12px;z-index:60;background:rgba(0,0,0,0.45);padding:10px;border-radius:10px;border:1px solid var(--border)}
-  .music-fixed select{min-width:200px}
-  .loadingMask{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.36);z-index:20;border-radius:12px;align-items:center;justify-content:center}
-  .spinner{width:22px;height:22px;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .controls{display:flex;gap:8px;align-items:center}
-  @media(max-width:920px){ .stage{flex-direction:column} .right{width:100%} .music-fixed select{min-width:140px} }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Đại Hội Võ Thuật</title>
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{--card:rgba(255,255,255,.85);--cardDark:rgba(18,18,18,.78)}
+    .glass{backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px)}
+    #bgVideo{position:fixed;right:0;bottom:0;min-width:100%;min-height:100%;object-fit:cover;z-index:-2}
+    .bg-overlay{position:fixed;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.25));z-index:-1;transition:background .2s}
+    .post-grid{scroll-snap-type:x mandatory}
+    .post-card{scroll-snap-align:center}
+    .emoji-bubble{position:absolute; bottom:60px; left:50%; transform:translateX(-50%); display:none}
+    .comment-stream{max-height:240px; overflow-y:auto}
+    .admin-only{display:none}
+  </style>
 </head>
-<body data-theme="">
+<body class="min-h-screen text-slate-900 dark:bg-neutral-950 dark:text-slate-100">
 
-<header>
-  <div class="brand">Mini Social — Firestore</div>
-  <div style="display:flex;gap:8px;align-items:center">
-    <div id="whoInfo" class="pill tiny">Chưa đăng nhập</div>
-    <button id="themeToggle" class="btn tiny">Theme</button>
-    <button id="btnLogout" class="btn tiny" style="display:none">Đăng xuất</button>
-  </div>
-</header>
+  <!-- ===== Background video (Code 1) ===== -->
+  <video autoplay muted loop playsinline id="bgVideo">
+    <source src="background.mp4" type="video/mp4">
+  </video>
+  <div class="bg-overlay" id="bgOverlay"></div>
 
-<div class="app">
-  <div class="card stage">
-    <div class="left">
-      <div id="composerWrap" class="card" style="display:none;position:relative">
-        <div id="uploadMask" class="loadingMask"><div class="spinner"></div></div>
-        <div style="display:flex;gap:12px;align-items:center">
-          <img id="meAvatar" class="avatar" src="" alt="avatar" />
-          <div>
-            <div id="meName" style="font-weight:700">—</div>
-            <div id="meRole" class="tiny">User</div>
-          </div>
-          <div style="margin-left:auto" class="tiny pill" id="limitInfo">1 bài / 24h</div>
-        </div>
-        <textarea id="postContent" placeholder="Viết bài..."></textarea>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-          <input id="imageFile" type="file" accept="image/*" class="tiny" />
-          <button id="btnPost" class="btn">Đăng</button>
-          <div style="margin-left:auto" class="tiny" id="composerHint">Bạn có thể đăng ảnh + text</div>
-        </div>
+  <!-- ===== Top Bar ===== -->
+  <header class="glass sticky top-0 z-30">
+    <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">🥋</span>
+        <h1 class="text-xl font-bold">Đại Hội Võ Thuật</h1>
+        <span id="badgeRandom" class="hidden ml-3 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-600 text-white"></span>
       </div>
-
-      <div id="feed" class="card" style="margin-top:12px">
-        <div id="emptyHint" class="tiny" style="text-align:center;padding:30px;color:var(--muted)">Chưa có bài viết — đăng bài đầu tiên nhé!</div>
-        <!-- posts appended here -->
-        <div id="loadMoreWrap" style="text-align:center;padding:8px;display:none"><button id="btnLoadMore" class="btn tiny">Tải thêm</button></div>
+      <div class="flex items-center gap-2">
+        <span id="onlineCount" class="text-sm opacity-90">0 online</span>
+        <button id="themeToggle" class="px-3 py-1.5 rounded-xl bg-black/70 text-white dark:bg-white/20">🌗</button>
+        <button id="bgToggle" class="px-3 py-1.5 rounded-xl bg-black/70 text-white dark:bg-white/20">Tắt nền</button>
+        <button id="logoutBtn" class="px-3 py-1.5 rounded-xl bg-red-600 text-white hidden">Đăng xuất</button>
       </div>
     </div>
+  </header>
 
-    <aside class="right">
-      <div class="card" id="authCard">
-        <div style="font-weight:700;margin-bottom:8px">Auth</div>
-        <div id="authBox">
-          <div id="registerPanel" style="display:none">
-            <input id="regEmail" placeholder="Email" />
-            <input id="regPass" type="password" placeholder="Mật khẩu" />
-            <input id="regAvatarUrl" placeholder="Avatar URL (tùy chọn)" />
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button id="btnRegister" class="btn">Đăng ký</button>
-              <button id="btnShowLogin" class="btn">Đăng nhập</button>
-            </div>
+  <!-- ===== Auth Views ===== -->
+  <main class="mx-auto max-w-6xl p-4 space-y-6">
+    <!-- Auth Card -->
+    <section id="authView" class="glass rounded-2xl p-6 bg-white/70 dark:bg-black/50">
+      <div class="grid md:grid-cols-2 gap-6">
+        <div>
+          <h2 class="text-lg font-semibold mb-3">Đăng nhập</h2>
+          <form id="loginForm" class="space-y-3">
+            <input id="loginEmail" class="w-full px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" placeholder="Email" type="email" required>
+            <input id="loginPassword" class="w-full px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" placeholder="Mật khẩu" type="password" required>
+            <button class="w-full py-2 rounded-xl bg-indigo-600 text-white">Đăng nhập</button>
+            <button id="forgotBtn" type="button" class="w-full py-2 rounded-xl bg-black/70 text-white">Quên mật khẩu</button>
+          </form>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold mb-3">Đăng ký</h2>
+          <form id="registerForm" class="space-y-3">
+            <input id="regDisplayName" class="w-full px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" placeholder="Tên tài khoản" required>
+            <input id="regEmail" class="w-full px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" placeholder="Email" type="email" required>
+            <input id="regPassword" class="w-full px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" placeholder="Mật khẩu" type="password" required>
+            <button class="w-full py-2 rounded-xl bg-emerald-600 text-white">Tạo tài khoản</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Code 2: Music select -->
+      <div class="mt-6 music-btn">
+        <select onchange="changeSong(this.value)" class="px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10">
+          <option value="">Play Music</option>
+          <option value="./deanhluongthien.mp3">Để Anh Lương Thiện Remix</option>
+          <option value="./emcuoiroia.mp3">Em Cưới Rồi À Remix</option>
+          <option value="./freemanxlowremix.mp3">Free Man x Low Remix</option>
+          <option value="./slayphonk.mp3">Slay Phonk</option>
+          <option value="./Nk.mp3">Yêu em rất nhiều</option>
+          <option value="./nghebaitrinhchua.mp3">Nghe Bài Trình Chưa ??</option>
+          <option value="./Quangay.mp3">Tại sao Quân là gay ?</option>
+          <option value="./B4BxAdamn.mp3">Mashup Band 4 Band x Adamn</option>
+          <option value="./thaproitudo.mp3">Tháp Rơi Tự Do</option>
+        </select>
+        <audio id="bgMusic" autoplay loop hidden></audio>
+      </div>
+    </section>
+
+    <!-- ===== Main App (hidden until login) ===== -->
+    <section id="appView" class="hidden space-y-6">
+
+      <!-- Profile + Actions -->
+      <div class="glass rounded-2xl p-4 bg-white/70 dark:bg-black/50 flex items-center gap-4">
+        <label class="relative inline-block">
+          <img id="avatarImg" src="https://api.dicebear.com/9.x/thumbs/svg?seed=dojo" class="w-16 h-16 rounded-2xl object-cover" alt="avatar"/>
+          <input id="avatarInput" type="file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer" title="Đổi ảnh đại diện"/>
+        </label>
+        <div class="flex-1">
+          <div class="font-semibold" id="meName">—</div>
+          <div class="text-sm opacity-80" id="meEmail">—</div>
+          <div class="text-sm opacity-80">Follower: <span id="meFollower">0</span> <span id="followerBadge"></span></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="searchUser" placeholder="Tìm người dùng…" class="px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10"/>
+          <button id="openDM" class="px-3 py-2 rounded-xl bg-indigo-600 text-white">Nhắn tin</button>
+        </div>
+      </div>
+
+      <!-- Composer -->
+      <div class="glass rounded-2xl p-4 bg-white/70 dark:bg-black/50">
+        <h3 class="font-semibold mb-3">Đăng bài</h3>
+        <form id="postForm" class="space-y-3">
+          <textarea id="postText" class="w-full px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" rows="3" placeholder="Bạn đang nghĩ gì?" required></textarea>
+          <div class="flex items-center gap-3">
+            <input id="postFile" type="file" class="file:mr-3 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white"/>
+            <button class="px-4 py-2 rounded-xl bg-emerald-600 text-white">Đăng</button>
+            <span class="text-sm opacity-80" id="limitHint"></span>
           </div>
+        </form>
+      </div>
 
-          <div id="loginPanel">
-            <input id="loginEmail" placeholder="Email" />
-            <input id="loginPass" type="password" placeholder="Mật khẩu" />
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button id="btnLogin" class="btn">Đăng nhập</button>
-              <button id="btnShowReg" class="btn">Đăng ký</button>
-            </div>
+      <!-- Feed -->
+      <div class="glass rounded-2xl p-4 bg-white/70 dark:bg-black/50">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold">Bài viết mới</h3>
+          <div class="text-sm opacity-75">Vuốt ⟷ để xem</div>
+        </div>
+        <div id="feed" class="post-grid flex gap-4 overflow-x-auto pb-4"></div>
+      </div>
+
+      <!-- DM drawer -->
+      <div id="dmPanel" class="hidden glass rounded-2xl p-4 bg-white/70 dark:bg-black/50">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold">Tin nhắn</h3>
+          <button id="closeDM" class="px-3 py-1.5 rounded-xl bg-black/70 text-white">Đóng</button>
+        </div>
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="md:col-span-1 space-y-2" id="dmUsers"></div>
+          <div class="md:col-span-2">
+            <div id="dmThread" class="h-80 overflow-y-auto p-3 rounded-xl bg-black/5 dark:bg-white/5"></div>
+            <form id="dmForm" class="mt-3 flex gap-2">
+              <input id="dmInput" class="flex-1 px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" placeholder="Nhập tin nhắn…"/>
+              <button class="px-4 py-2 rounded-xl bg-indigo-600 text-white">Gửi</button>
+            </form>
           </div>
         </div>
       </div>
 
-      <div style="height:12px"></div>
-
-      <div class="card">
-        <div style="font-weight:700;margin-bottom:8px">Music (playlist của bạn)</div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div class="controls">
-            <select id="musicList"></select>
-            <button id="musicPlay" class="btn">⏯</button>
-          </div>
-          <div class="tiny">Bạn có thể thêm URL mp3 • Playlist lưu theo tài khoản</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button id="btnAddMusic" class="btn tiny">+Add</button>
-            <button id="btnPrev" class="btn tiny">Prev</button>
-            <button id="btnNext" class="btn tiny">Next</button>
-            <button id="btnRemoveMusic" class="btn tiny">Remove</button>
-          </div>
-          <audio id="bgMusic" loop></audio>
+      <!-- Admin Vault (kho lưu trữ) -->
+      <div id="adminVault" class="admin-only glass rounded-2xl p-4 bg-white/70 dark:bg-black/50">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold">Kho lưu trữ dữ liệu (Admin)</h3>
+          <button id="deleteAllPosts" class="px-3 py-2 rounded-xl bg-red-600 text-white">Xoá TẤT CẢ bài viết</button>
         </div>
+        <div class="flex items-center gap-2 mb-3">
+          <input type="file" id="vaultFile" class="file:mr-3 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white"/>
+          <button id="uploadVault" class="px-3 py-2 rounded-xl bg-indigo-600 text-white">Tải lên kho</button>
+          <button id="refreshVault" class="px-3 py-2 rounded-xl bg-black/70 text-white">Làm mới</button>
+        </div>
+        <ul id="vaultList" class="text-sm space-y-1"></ul>
       </div>
-    </aside>
-  </div>
-</div>
 
-<div id="modal" class="modal"><div class="box card" id="modalBox"></div></div>
-<div id="toastRoot"></div>
+    </section>
+  </main>
 
-<script type="module">
-/* ================= FIREBASE IMPORTS ================= */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy,
-  doc, getDoc, updateDoc, runTransaction, deleteDoc, where, getDocs, limit, startAfter
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  <!-- ===== Templates ===== -->
+  <template id="postTpl">
+    <article class="relative post-card min-w-[320px] max-w-[480px] w-[90vw] rounded-2xl p-4 bg-[var(--card)] dark:bg-[var(--cardDark)] glass">
+      <header class="flex items-center gap-3">
+        <img class="w-12 h-12 rounded-xl object-cover author-avatar"/>
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold flex items-center gap-1">
+            <span class="author-name truncate"></span>
+            <span class="follow-badge"></span>
+          </div>
+          <div class="text-xs opacity-70"><span class="ts"></span> • <span class="views"></span> <span class="hot"></span></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="followBtn px-2 py-1 rounded-lg bg-black/70 text-white text-xs">Follow</button>
+          <button class="delBtn px-2 py-1 rounded-lg bg-red-600 text-white text-xs">Xoá</button>
+        </div>
+      </header>
+      <div class="mt-3 text-sm content"></div>
+      <img class="mt-3 rounded-xl media hidden"/>
+      <div class="mt-3 flex items-center gap-2">
+        <input class="commentInput flex-1 px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10" placeholder="Bình luận…"/>
+        <button class="commentBtn px-3 py-2 rounded-xl bg-indigo-600 text-white">Gửi</button>
+      </div>
+      <div class="comment-stream mt-3 rounded-xl bg-black/5 dark:bg-white/5 p-2 space-y-1"></div>
+      <div class="emoji-bubble"><div class="px-3 py-2 rounded-xl bg-black/70 text-white text-xl select-none">😀 😍 👍 🔥 😆 😮 😢 😡</div></div>
+      <div class="mt-2 text-sm opacity-80">Reacts: <span class="reacts"></span></div>
+    </article>
+  </template>
 
-/* ================= FIREBASE CONFIG (bạn đã cung cấp) ================= */
-const firebaseConfig = {
-  apiKey: "AIzaSyBTcjWMAWAd6t3fPOi7jGFjMW3PHdZBfg",
-  authDomain: "myblog-2d856.firebaseapp.com",
-  projectId: "myblog-2d856",
-  storageBucket: "myblog-2d856.appspot.com",
-  messagingSenderId: "784534821820",
-  appId: "1:784534821820:web:c1f8271825c192a93f3890",
-  measurementId: "G-RRFMNJLZTT"
-};
+  <!-- ===== Firebase SDKs (v12) ===== -->
+  <script type="module">
+    // ==== Firebase config của bạn (đÃ cung cấp) ====
+    const firebaseConfig = {
+      apiKey: "AIzaSyBsLXs9rZROGQJjIYxGommG00Jf4Xxs2w0",
+      authDomain: "hust-3d8f5.firebaseapp.com",
+      projectId: "hust-3d8f5",
+      storageBucket: "hust-3d8f5.firebasestorage.app",
+      messagingSenderId: "208271977864",
+      appId: "1:208271977864:web:62ddf6649d8fe16019de3d",
+      measurementId: "G-XZGDGMSG97"
+    };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const storage = getStorage(app);
-const auth = getAuth(app);
+    // ===== INIT Firebase =====
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+    import { getAuth, setPersistence, browserLocalPersistence, onAuthStateChanged, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, getDoc, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, deleteDoc, limit, where, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+    import { getStorage, ref as sRef, uploadBytes, getDownloadURL, listAll } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-storage.js";
+    import { getDatabase, ref, onValue, onDisconnect, set, remove } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-analytics.js";
 
-/* ================= HELPERS & STATE ================= */
-const $ = s => document.querySelector(s);
-const toast = (t,ms=2400)=>{ const d=document.createElement('div'); d.className='toast'; d.innerText=t; document.body.appendChild(d); setTimeout(()=>d.remove(),ms); };
-const uidLocal = ()=> localStorage.getItem('ms_uid') || (function(){ const id = 'u_'+Math.random().toString(36).slice(2,10); localStorage.setItem('ms_uid', id); return id })();
-const adminEmails = ["admin@gmail.com","iloveanhtu09@gmail.com"];
-function now(){ return Date.now(); }
+    const app = initializeApp(firebaseConfig);
+    getAnalytics(app);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+    const rtdb = getDatabase(app);
+    await setPersistence(auth, browserLocalPersistence); //  không đăng xuất khi tải lại trang
 
-let currentUser = null;
-let posts = [];
-let lastVisible = null;
-let listeningRealtime = null;
-let followingSet = new Set();
-let playlist = [];
-let playlistUnsub = null;
+    // ====== Cấu hình admin theo email (THAY email của bạn ở đây) ======
+    const ADMIN_EMAILS = [
+      'iloveanhtu09@gmail.com', // ← thay bằng email admin của bạn
+    ];
 
-/* UI refs */
-const composerWrap = $('#composerWrap'), feed = $('#feed'), emptyHint = $('#emptyHint'), uploadMask = $('#uploadMask');
-const btnRegister = $('#btnRegister'), btnShowLogin = $('#btnShowLogin'), btnShowReg = $('#btnShowReg');
-const btnLogin = $('#btnLogin'), btnLogout = $('#btnLogout');
-const regEmail = $('#regEmail'), regPass = $('#regPass'), regAvatarUrl = $('#regAvatarUrl');
-const loginEmail = $('#loginEmail'), loginPass = $('#loginPass');
-const postContent = $('#postContent'), imageFile = $('#imageFile'), btnPost = $('#btnPost');
-const whoInfo = $('#whoInfo'), meAvatar = $('#meAvatar'), meName = $('#meName'), meRole = $('#meRole'), limitInfo = $('#limitInfo');
-const musicSelect = $('#musicList'), bgMusic = $('#bgMusic'), musicPlay = $('#musicPlay'), btnAddMusic = $('#btnAddMusic'), btnPrev = $('#btnPrev'), btnNext = $('#btnNext'), btnRemoveMusic = $('#btnRemoveMusic');
-const modal = $('#modal'), modalBox = $('#modalBox'), themeToggle = $('#themeToggle');
-const btnLoadMore = $('#btnLoadMore'), loadMoreWrap = $('#loadMoreWrap');
+    // ===== Helpers =====
+    const $ = (s,p=document)=>p.querySelector(s);
+    const $$ = (s,p=document)=>[...p.querySelectorAll(s)];
+    const fmt = ts=> new Date(ts?.seconds? ts.seconds*1000: ts).toLocaleString('vi-VN');
 
-/* ========== UI helpers ========== */
-function defaultAvatarSVG(){ const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128'><rect width='100%' height='100%' fill='#777'/></svg>`; return 'data:image/svg+xml;base64,'+btoa(svg); }
-function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    // ===== Theme toggle =====
+    const themeToggle = $('#themeToggle');
+    document.documentElement.classList.toggle('dark', localStorage.getItem('theme')==='dark');
+    themeToggle.addEventListener('click',()=>{
+      const d = !document.documentElement.classList.contains('dark');
+      document.documentElement.classList.toggle('dark', d);
+      localStorage.setItem('theme', d? 'dark':'light');
+    });
 
-/* ========== AUTH flows & profile ========== */
-btnShowLogin.onclick = ()=>{ $('#registerPanel').style.display='none'; $('#loginPanel').style.display='block'; };
-btnShowReg.onclick = ()=>{ $('#registerPanel').style.display='block'; $('#loginPanel').style.display='none'; };
+    // ===== Background toggle =====
+    const bgToggle = $('#bgToggle');
+    const bgVideo = $('#bgVideo');
+    const bgOverlay = $('#bgOverlay');
+    bgToggle.addEventListener('click', ()=>{
+      const off = !bgVideo.paused;
+      if(off){ bgVideo.pause(); bgOverlay.style.background='linear-gradient(180deg,rgba(0,0,0,.85),rgba(0,0,0,.85))'; bgToggle.textContent='Bật nền'; }
+      else { bgVideo.play(); bgOverlay.style.background='linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.25))'; bgToggle.textContent='Tắt nền'; }
+    });
 
-btnRegister.onclick = async ()=>{
-  const email = regEmail.value.trim(); const pw = regPass.value;
-  if(!email || !pw) return toast('Nhập email & mật khẩu');
-  try{
-    const cred = await createUserWithEmailAndPassword(auth,email,pw);
-    const photoURL = regAvatarUrl.value.trim() || '';
-    await updateProfile(cred.user, { displayName: email.split('@')[0], photoURL });
-    // create profile doc
-    await setProfileDoc(cred.user.uid, { uid: cred.user.uid, email: cred.user.email, displayName: cred.user.displayName || email.split('@')[0], avatar: photoURL, followers:0, following:0 });
-    toast('Đăng ký thành công — đã tạo profile');
-    regEmail.value=''; regPass.value=''; regAvatarUrl.value='';
-    btnShowLogin.click();
-  }catch(e){ console.error(e); toast('Lỗi đăng ký: '+e.message); }
-};
+    // ===== Music (Code 2) =====
+    const player = $('#bgMusic');
+    window.changeSong = (src)=>{ if(!src) return; player.src = src; player.play().catch(()=>{}); };
 
-btnLogin.onclick = async ()=>{
-  const email = loginEmail.value.trim(); const pw = loginPass.value;
-  if(!email || !pw) return toast('Nhập email & mật khẩu');
-  try{ await signInWithEmailAndPassword(auth, email, pw); toast('Đăng nhập thành công'); }catch(e){ console.error(e); toast('Lỗi đăng nhập: '+e.message); }
-};
+    // ===== Auth =====
+    const authView = $('#authView');
+    const appView  = $('#appView');
+    const logoutBtn = $('#logoutBtn');
 
-btnLogout.onclick = ()=> signOut(auth);
+    $('#registerForm').addEventListener('submit', async e=>{
+      e.preventDefault();
+      const email = $('#regEmail').value.trim();
+      const pass  = $('#regPassword').value;
+      const name  = $('#regDisplayName').value.trim();
+      const cr = await createUserWithEmailAndPassword(auth,email,pass);
+      await updateProfile(cr.user,{ displayName:name });
+      await setDoc(doc(db,'users',cr.user.uid),{ displayName:name, email, createdAt: serverTimestamp(), avatar:null, followers:0, role: ADMIN_EMAILS.includes(email)? 'admin':'user' });
+    });
 
-/* create or update profile doc */
-async function setProfileDoc(uid, data){
-  try{
-    await updateDoc(doc(db,'profiles',uid), data).catch(async ()=>{ await addDoc(collection(db,'profiles'), Object.assign({id:uid}, data)); /* fallback if no doc */});
-  }catch(e){
-    // fallback create
-    try{ await setDoc(doc(db,'profiles',uid), data); }catch(err){ console.warn('setProfileDoc err', err); }
-  }
-}
+    $('#loginForm').addEventListener('submit', async e=>{
+      e.preventDefault();
+      const email = $('#loginEmail').value.trim();
+      const pass  = $('#loginPassword').value;
+      const cr = await signInWithEmailAndPassword(auth,email,pass);
+      // nếu là admin mà user doc chưa có role, gán role
+      const uref = doc(db,'users',cr.user.uid);
+      const us = await getDoc(uref);
+      if(!us.exists()){
+        await setDoc(uref,{ displayName: cr.user.displayName||email, email, createdAt: serverTimestamp(), avatar:null, followers:0, role: ADMIN_EMAILS.includes(email)? 'admin':'user' });
+      } else if(ADMIN_EMAILS.includes(email) && (us.data().role!=='admin')){
+        await updateDoc(uref,{ role:'admin' });
+      }
+    });
 
-/* ensure profile exists and has counts */
-async function ensureProfile(uid, user){
-  try{
-    const pRef = doc(db,'profiles',uid);
-    const pSnap = await getDoc(pRef);
-    if(!pSnap.exists()){
-      await setDoc(pRef, {
-        uid,
-        email: user.email,
-        displayName: user.displayName || user.email.split('@')[0],
-        avatar: user.photoURL || '',
-        followers: 0,
-        following: 0,
-        createdAt: serverTimestamp()
+    $('#forgotBtn').addEventListener('click', async ()=>{
+      const email = prompt('Nhập email để đặt lại mật khẩu');
+      if(email){ await sendPasswordResetEmail(auth,email); alert('Đã gửi email đặt lại mật khẩu'); }
+    });
+
+    logoutBtn.addEventListener('click', ()=> signOut(auth));
+
+    // ===== Presence (online count) via RTDB =====
+    const onlineCountEl = $('#onlineCount');
+    let myPresenceRef;
+    function setupPresence(user){
+      const presenceRef = ref(rtdb, 'presence');
+      myPresenceRef = ref(rtdb, `presence/${user.uid}`);
+      set(myPresenceRef, { displayName: user.displayName || user.email, ts: Date.now() });
+      onDisconnect(myPresenceRef).remove();
+      onValue(presenceRef, snap=>{
+        const data = snap.val()||{}; onlineCountEl.textContent = `${Object.keys(data).length} online`;
       });
+      setInterval(()=> set(myPresenceRef, { displayName: user.displayName||user.email, ts: Date.now()}), 30000);
     }
-  }catch(e){ console.warn('ensureProfile', e); }
-}
 
-/* follow/unfollow helpers (bi-directional) */
-async function followUser(targetUid){
-  if(!currentUser) return toast('Đăng nhập để follow');
-  if(currentUser.uid === targetUid) return;
-  const myFollowingRef = doc(db,'users',currentUser.uid,'following',targetUid);
-  const theirFollowersRef = doc(db,'users',targetUid,'followers',currentUser.uid);
-  try{
-    await runTransaction(db, async (tx)=>{
-      const f1 = await tx.get(myFollowingRef);
-      if(f1.exists()) return; // already following
-      tx.set(myFollowingRef, { uid: targetUid, ts: serverTimestamp() });
-      tx.set(theirFollowersRef, { uid: currentUser.uid, ts: serverTimestamp() });
-      // increment counts in profile (if exists)
-      const profRef = doc(db,'profiles',targetUid);
-      const myProfRef = doc(db,'profiles',currentUser.uid);
-      const p = await tx.get(profRef);
-      const mp = await tx.get(myProfRef);
-      if(p.exists()) tx.update(profRef, { followers: (p.data().followers||0) + 1 });
-      if(mp.exists()) tx.update(myProfRef, { following: (mp.data().following||0) + 1 });
-    });
-    followingSet.add(targetUid);
-    toast('Đã follow');
-  }catch(e){ console.error('follow err', e); toast('Lỗi follow'); }
-}
-
-async function unfollowUser(targetUid){
-  if(!currentUser) return toast('Đăng nhập để unfollow');
-  const myFollowingRef = doc(db,'users',currentUser.uid,'following',targetUid);
-  const theirFollowersRef = doc(db,'users',targetUid,'followers',currentUser.uid);
-  try{
-    await runTransaction(db, async (tx)=>{
-      const f1 = await tx.get(myFollowingRef);
-      if(!f1.exists()) return;
-      tx.delete(myFollowingRef);
-      tx.delete(theirFollowersRef);
-      const profRef = doc(db,'profiles',targetUid);
-      const myProfRef = doc(db,'profiles',currentUser.uid);
-      const p = await tx.get(profRef);
-      const mp = await tx.get(myProfRef);
-      if(p.exists()) tx.update(profRef, { followers: Math.max(0,(p.data().followers||1) - 1) });
-      if(mp.exists()) tx.update(myProfRef, { following: Math.max(0,(mp.data().following||1) - 1) });
-    });
-    followingSet.delete(targetUid);
-    toast('Đã unfollow');
-  }catch(e){ console.error('unfollow err', e); toast('Lỗi unfollow'); }
-}
-
-/* load following list for current user (to check follow button) */
-async function loadMyFollowing(){
-  followingSet.clear();
-  if(!currentUser) return;
-  try{
-    const snap = await getDocs(collection(db,'users',currentUser.uid,'following'));
-    snap.forEach(d => followingSet.add(d.id));
-  }catch(e){ console.warn('loadMyFollowing', e); }
-}
-
-/* ========== ON AUTH STATE ========== */
-onAuthStateChanged(auth, async (user)=>{
-  if(user){
-    currentUser = {
-      uid: user.uid,
-      email: user.email,
-      name: user.displayName || user.email.split('@')[0],
-      avatarUrl: user.photoURL || '',
-      isAdmin: adminEmails.includes(user.email)
-    };
-    whoInfo.textContent = `Bạn: ${currentUser.name}${currentUser.isAdmin ? ' (admin)' : ''}`;
-    meName.textContent = currentUser.name;
-    meRole.textContent = currentUser.isAdmin ? 'Admin' : 'User';
-    meAvatar.src = currentUser.avatarUrl || defaultAvatarSVG();
-    composerWrap.style.display = 'block';
-    btnLogout.style.display = 'inline-block';
-    $('#authCard').style.display = 'none';
-    limitInfo.textContent = currentUser.isAdmin ? 'Không giới hạn' : '1 bài / 24h';
-    await ensureProfile(currentUser.uid, user);
-    await loadMyFollowing();
-    startRealtimeFeed(); // start feed
-    startPlaylistListener();
-  }else{
-    currentUser = null;
-    whoInfo.textContent = 'Chưa đăng nhập';
-    meAvatar.src = '';
-    composerWrap.style.display = 'none';
-    btnLogout.style.display = 'none';
-    $('#authCard').style.display = 'block';
-    feed.innerHTML = ''; posts = []; lastVisible = null;
-    stopPlaylistListener();
-  }
-});
-
-/* ========== POSTS FEED (paginated + realtime for latest chunk) ========== */
-const PAGE_SIZE = 10;
-let realtimeUnsub = null;
-
-function startRealtimeFeed(){
-  // stop old
-  if(realtimeUnsub) realtimeUnsub();
-
-  // realtime for latest PAGE_SIZE posts
-  const q = query(collection(db,'posts'), orderBy('ts','desc'), limit(PAGE_SIZE));
-  realtimeUnsub = onSnapshot(q, snap=>{
-    posts = [];
-    snap.forEach(d => posts.push({ id: d.id, ...d.data() }));
-    lastVisible = snap.docs[snap.docs.length-1] || null;
-    renderFeed();
-    // show load more if more exists
-    loadMoreWrap.style.display = 'block';
-  });
-}
-
-/* load older posts (one-shot) */
-async function loadMorePosts(){
-  if(!lastVisible) return;
-  btnLoadMore.disabled = true;
-  try{
-    const qMore = query(collection(db,'posts'), orderBy('ts','desc'), startAfter(lastVisible), limit(PAGE_SIZE));
-    const snap = await getDocs(qMore);
-    if(!snap.empty){
-      snap.forEach(d => posts.push({ id: d.id, ...d.data() }));
-      lastVisible = snap.docs[snap.docs.length-1] || lastVisible;
-      renderFeed(true); // append
-    } else {
-      toast('Không còn bài cũ hơn');
-      loadMoreWrap.style.display = 'none';
+    // ===== Random banner every 5 minutes; show 12s =====
+    const badgeRandom = $('#badgeRandom');
+    async function showRandomBadge(){
+      const qs = await getDocs(query(collection(db,'users'), limit(50)));
+      const arr = qs.docs.map(d=>({id:d.id,...d.data()}));
+      if(!arr.length) return;
+      const pick = arr[Math.floor(Math.random()*arr.length)];
+      badgeRandom.textContent = `ID User: ${pick.id}`;
+      badgeRandom.classList.remove('hidden');
+      setTimeout(()=> badgeRandom.classList.add('hidden'), 12000);
     }
-  }catch(e){ console.error('loadMore err', e); toast('Lỗi tải thêm'); }
-  finally{ btnLoadMore.disabled = false; }
-}
-btnLoadMore.onclick = loadMorePosts;
+    setInterval(showRandomBadge, 5*60*1000);
 
-function renderFeed(append=false){
-  if(!append) feed.innerHTML = '';
-  if(posts.length === 0){ emptyHint.style.display = 'block'; return; } else emptyHint.style.display='none';
-  // use requestAnimationFrame to avoid blocking UI when inserting many nodes
-  requestAnimationFrame(()=>{
-    posts.forEach((p, idx)=>{
-      // if appending, only append new ones at end; to keep simple, we clear and re-render.
-      // create node
-      const node = createPostNode(p);
-      feed.appendChild(node);
+    // ===== Profile + avatar =====
+    const meName=$('#meName'), meEmail=$('#meEmail'), meFollower=$('#meFollower'), followerBadge=$('#followerBadge');
+    const avatarImg=$('#avatarImg'), avatarInput=$('#avatarInput');
+
+    avatarInput.addEventListener('change', async e=>{
+      const f = e.target.files?.[0]; if(!f || !auth.currentUser) return;
+      const r = sRef(storage, `avatars/${auth.currentUser.uid}`);
+      await uploadBytes(r,f); const url = await getDownloadURL(r);
+      await updateDoc(doc(db,'users',auth.currentUser.uid), { avatar:url });
+      avatarImg.src = url;
     });
-    // append load more button area
-    if(loadMoreWrap.parentElement !== feed) feed.appendChild(loadMoreWrap);
-  });
-}
 
-/* ========== createPostNode (lightweight, lazy comment subscribe) ========== */
-function createPostNode(p){
-  const n = document.createElement('div'); n.className='post'; n.dataset.id = p.id;
-  // header
-  const header = document.createElement('div'); header.className='meta';
-  const left = document.createElement('div'); left.className='author';
-  const img = document.createElement('img'); img.className='avatar'; img.src = p.avatar || defaultAvatarSVG(); img.loading='lazy'; img.onerror = ()=> img.src = defaultAvatarSVG();
-  const nameWrap = document.createElement('div');
-  const nameSpan = document.createElement('div'); nameSpan.style.fontWeight='700'; nameSpan.textContent = p.user || 'Ẩn danh';
-  const subTiny = document.createElement('div'); subTiny.className='tiny'; subTiny.textContent = p.ts ? new Date(p.ts.seconds ? p.ts.toMillis() : p.ts).toLocaleString() : '';
-  nameWrap.appendChild(nameSpan); nameWrap.appendChild(subTiny);
-  left.appendChild(img); left.appendChild(nameWrap);
-  header.appendChild(left);
+    // ===== Daily post limit =====
+    async function canPost(uid, isAdmin){
+      if(isAdmin) return true;
+      const qs = await getDocs(query(collection(db,'posts'), where('uid','==',uid), orderBy('createdAt','desc'), limit(1)));
+      if(qs.empty) return true;
+      const last = qs.docs[0].data();
+      const lastDate = new Date((last.createdAt?.seconds||0)*1000).toDateString();
+      return lastDate !== new Date().toDateString();
+    }
 
-  const right = document.createElement('div'); right.style.display='flex'; right.style.alignItems='center'; right.style.gap='10px';
-  const views = document.createElement('div'); views.className='tiny views'; views.textContent = `👁 ${p.views||0}`;
-  right.appendChild(views);
-  header.appendChild(right);
-  n.appendChild(header);
+    // ===== Create post =====
+    const postForm = $('#postForm');
+    const limitHint = $('#limitHint');
+    async function refreshLimitHint(){
+      const user=auth.currentUser; if(!user){ limitHint.textContent=''; return; }
+      const prof=await getDoc(doc(db,'users',user.uid)); const role=prof.data()?.role||'user';
+      const ok = await canPost(user.uid, role==='admin');
+      limitHint.textContent = ok? (role==='admin'? 'Admin: không giới hạn':'Bạn còn 1 lần đăng hôm nay'): 'Đã dùng lượt hôm nay';
+    }
 
-  // content
-  const content = document.createElement('div'); content.style.marginTop='8px'; content.style.whiteSpace='pre-wrap';
-  content.innerHTML = escapeHtml(p.text || '');
-  content.addEventListener('click', ()=> openPostDetail(p.id));
-  n.appendChild(content);
-  if(p.img){ const im = document.createElement('img'); im.src=p.img; im.loading='lazy'; im.style.maxWidth='100%'; im.style.marginTop='8px'; im.style.borderRadius='10px'; n.appendChild(im); }
+    postForm.addEventListener('submit', async e=>{
+      e.preventDefault();
+      const user = auth.currentUser; if(!user) return;
+      const prof = await getDoc(doc(db,'users',user.uid));
+      const role = prof.data()?.role || 'user';
+      const allowed = await canPost(user.uid, role==='admin');
+      if(!allowed){ alert('Bạn chỉ được đăng 1 bài/ngày.'); return; }
+      if(!confirm('Xác nhận đăng bài?')) return; // hỏi trước khi đăng
 
-  // actions
-  const emojis = ['❤️','😂','🔥','👍','😮','🎉'];
-  const rwrap = document.createElement('div'); rwrap.className='reactions';
-  emojis.forEach(e=>{
-    const btn = document.createElement('div'); btn.className='reaction'; btn.dataset.emoji = e;
-    btn.innerHTML = `<span>${e}</span><span class="tiny count" style="margin-left:6px">${p.reactions && p.reactions[e] ? p.reactions[e] : 0}</span>`;
-    if(currentUser && p.userReactions && p.userReactions[currentUser.uid] === e) btn.classList.add('selected');
-    btn.addEventListener('click', ()=> onReactClick(p.id, e, btn));
-    rwrap.appendChild(btn);
-  });
-  n.appendChild(rwrap);
-
-  // follow button next to author if not current user
-  if(currentUser && p.uid !== currentUser.uid){
-    const fbtn = document.createElement('button'); fbtn.className='btn tiny'; fbtn.style.marginTop='8px';
-    fbtn.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
-    fbtn.onclick = async ()=>{
-      fbtn.disabled = true;
-      if(followingSet.has(p.uid)) await unfollowUser(p.uid); else await followUser(p.uid);
-      fbtn.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
-      fbtn.disabled = false;
-    };
-    n.appendChild(fbtn);
-  }
-
-  // comments toggle and count (we maintain commentsCount in post doc for quick count)
-  const cToggle = document.createElement('div'); cToggle.className='commentsToggle tiny'; cToggle.style.marginTop='8px';
-  cToggle.textContent = `💬 ${p.commentsCount||0} Bình luận • Xem chi tiết`;
-  cToggle.onclick = ()=> openPostDetail(p.id);
-  n.appendChild(cToggle);
-
-  // comment input inline (sends to subcollection but don't subscribe here to save reads)
-  const inRow = document.createElement('div'); inRow.style.display='flex'; inRow.style.gap='8px'; inRow.style.marginTop='8px';
-  const input = document.createElement('input'); input.placeholder = 'Bình luận...'; input.id = 'in'+p.id; input.style.flex='1';
-  const send = document.createElement('button'); send.className='btn tiny'; send.textContent = 'Gửi';
-  send.onclick = ()=> handleSendComment(p.id);
-  inRow.appendChild(input); inRow.appendChild(send);
-  n.appendChild(inRow);
-
-  // delete button if owner/admin
-  if(currentUser && (currentUser.isAdmin || currentUser.uid === p.uid)){
-    const del = document.createElement('button'); del.className='btn tiny'; del.textContent='Xóa';
-    del.style.marginTop='8px';
-    del.onclick = ()=> deletePost(p.id);
-    n.appendChild(del);
-  }
-
-  return n;
-}
-
-/* ========== open detail (modal) + lazy subscribe comments + increment views (transaction safe) ========== */
-async function openPostDetail(postId){
-  // increment view (transaction) if viewer not in viewers list
-  const postRef = doc(db,'posts',postId);
-  try{
-    await runTransaction(db, async (tx)=>{
-      const snap = await tx.get(postRef);
-      if(!snap.exists()) throw 'not exist';
-      const data = snap.data();
-      const viewers = data.viewers || [];
-      const userKey = currentUser ? currentUser.uid : uidLocal();
-      if(!viewers.includes(userKey)){
-        const newViewers = Array.from(new Set([...(viewers||[]), userKey]));
-        tx.update(postRef, { views: (data.views||0) + 1, viewers: newViewers });
+      const text = $('#postText').value.trim();
+      const file = $('#postFile').files?.[0];
+      let mediaURL=null;
+      if(file){
+        const r = sRef(storage, `posts/${user.uid}/${Date.now()}_${file.name}`);
+        await uploadBytes(r, file); mediaURL = await getDownloadURL(r);
       }
+      await addDoc(collection(db,'posts'),{
+        uid: user.uid,
+        text,
+        mediaURL,
+        createdAt: serverTimestamp(),
+        views:0,
+        reacts:{},
+      });
+      $('#postText').value=''; $('#postFile').value='';
+      refreshLimitHint();
     });
-  }catch(e){ console.warn('view tx err', e); }
 
-  // find post data from local posts cache
-  const p = posts.find(x=>x.id===postId);
-  if(!p){
-    // fallback fetch
-    const snap = await getDoc(postRef);
-    if(snap.exists()) p = { id: snap.id, ...snap.data() };
-    else return;
-  }
+    // ===== Feed =====
+    const feed = $('#feed');
+    const postTpl = $('#postTpl');
 
-  modalBox.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px">
-      <img src="${p.avatar || defaultAvatarSVG()}" style="width:56px;height:56px;border-radius:50%;object-fit:cover" />
-      <div>
-        <div style="font-weight:700">${escapeHtml(p.user||'Ẩn danh')} ${(p.views||0)>=10 ? '🔥' : ''}</div>
-        <div class="tiny">${p.ts ? (new Date(p.ts.seconds ? p.ts.toMillis() : p.ts)).toLocaleString() : ''} · 👁 ${p.views||0}</div>
-      </div>
-    </div>
-    <div style="margin-top:12px;white-space:pre-wrap">${escapeHtml(p.text||'')}</div>
-    ${p.img ? `<img src="${p.img}" style="width:100%;margin-top:12px;border-radius:10px" loading="lazy" />` : ''}
-    <div style="margin-top:12px;display:flex;gap:8px">
-      <button id="modalClose" class="btn">Đóng</button>
-      ${currentUser && p.uid !== currentUser.uid ? '<button id="modalFollow" class="btn tiny"></button>' : ''}
-    </div>
-    <div style="margin-top:12px"><strong>Bình luận:</strong></div>
-    <div id="modalComments" style="max-height:300px;overflow:auto;margin-top:6px"></div>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <input id="modalIn" placeholder="Bình luận..." style="flex:1"/>
-      <button id="modalSend" class="btn">Gửi</button>
-    </div>
-  `;
-  modal.style.display = 'flex';
-  $('#modalClose').onclick = ()=> modal.style.display = 'none';
+    async function isFollowing(targetUid){
+      const me=auth.currentUser; if(!me) return false;
+      const d=await getDoc(doc(db,'users',targetUid,'followers', me.uid));
+      return d.exists();
+    }
 
-  // follow btn in modal if applicable
-  if(currentUser && p.uid !== currentUser.uid){
-    const mf = $('#modalFollow');
-    mf.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
-    mf.onclick = async ()=>{
-      mf.disabled = true;
-      if(followingSet.has(p.uid)) await unfollowUser(p.uid); else await followUser(p.uid);
-      mf.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
-      mf.disabled = false;
-    };
-  }
-
-  // lazy subscribe comments for this post
-  const commentsContainer = $('#modalComments');
-  const cq = query(collection(db,'posts',postId,'comments'), orderBy('ts','desc'));
-  const unsub = onSnapshot(cq, snap=>{
-    commentsContainer.innerHTML = '';
-    snap.forEach(cdoc=>{
-      const c = cdoc.data();
-      const dv = document.createElement('div'); dv.className='comment';
-      dv.innerHTML = `<img src="${c.avatar || defaultAvatarSVG()}" class="c-avatar" onerror="this.src='${defaultAvatarSVG()}'" /><div style="flex:1">${escapeHtml(c.user)}<div class="tiny">${escapeHtml(c.text)}</div></div>`;
-      commentsContainer.appendChild(dv);
-    });
-  });
-
-  // send comment in modal
-  $('#modalSend').onclick = async ()=>{
-    if(!currentUser) return toast('Đăng nhập để bình luận');
-    const text = $('#modalIn').value.trim(); if(!text) return;
-    try{
-      await addDoc(collection(db,'posts',postId,'comments'), { user: currentUser.name, text, ts: serverTimestamp(), avatar: currentUser.avatarUrl||'' });
-      // increment commentsCount atomically
-      await runTransaction(db, async tx=>{ const docSnap = await tx.get(postRef); if(!docSnap.exists()) return; const data = docSnap.data(); tx.update(postRef, { commentsCount: (data.commentsCount||0) + 1 }); });
-      $('#modalIn').value = '';
-    }catch(e){ console.error(e); toast('Lỗi gửi bình luận'); }
-  };
-
-  // cleanup when modal closed
-  modal.addEventListener('click', (ev)=>{ if(ev.target === modal){ unsub(); modal.style.display='none'; } }, { once:true });
-}
-
-/* ========== reactions (transaction) ========== */
-async function onReactClick(postId, emoji, btn){
-  if(!currentUser) return toast('Đăng nhập để phản ứng');
-  const postRef = doc(db,'posts',postId);
-  try{
-    await runTransaction(db, async (tx)=>{
-      const snap = await tx.get(postRef);
-      if(!snap.exists()) throw "No doc";
-      const data = snap.data();
-      const reactions = data.reactions || {};
-      const userReactions = data.userReactions || {};
-      const prev = userReactions[currentUser.uid] || null;
-      if(prev === emoji){
-        reactions[emoji] = Math.max(0, (reactions[emoji]||0) - 1);
-        delete userReactions[currentUser.uid];
-      } else {
-        if(prev){ reactions[prev] = Math.max(0,(reactions[prev]||0) - 1); }
-        reactions[emoji] = (reactions[emoji]||0) + 1;
-        userReactions[currentUser.uid] = emoji;
+    function bindFollowButton(btn, targetUid){
+      async function update(){
+        btn.disabled=true;
+        const yes = await isFollowing(targetUid);
+        btn.textContent = yes? 'Unfollow':'Follow';
+        btn.classList.toggle('bg-black/70', !yes);
+        btn.classList.toggle('bg-amber-600', yes);
+        btn.disabled=false;
       }
-      tx.update(postRef, { reactions, userReactions });
-    });
-    // optimistic UI update not necessary because realtime feed will refresh
-  }catch(e){ console.error('react err', e); toast('Lỗi khi react'); }
-}
+      btn.onclick = async ()=>{
+        const me=auth.currentUser; if(!me||me.uid===targetUid) return;
+        const fRef = doc(db,'users',targetUid,'followers', me.uid);
+        const yes = await isFollowing(targetUid);
+        if(yes){ await deleteDoc(fRef); } else { await setDoc(fRef,{ at: serverTimestamp() }); }
+        const followersSnap = await getDocs(collection(db,'users',targetUid,'followers'));
+        await updateDoc(doc(db,'users',targetUid),{ followers: followersSnap.size });
+        update();
+      };
+      update();
+    }
 
-/* ========== comments (inline send & modal handled separately) ========== */
-async function handleSendComment(postId){
-  if(!currentUser) return toast('Đăng nhập để bình luận');
-  const inp = $('#in'+postId);
-  if(!inp) return;
-  const text = inp.value.trim(); if(!text) return;
-  try{
-    await addDoc(collection(db,'posts',postId,'comments'), { user: currentUser.name, text, ts: serverTimestamp(), avatar: currentUser.avatarUrl||'' });
-    // increment count
-    await runTransaction(db, async tx=>{ const pRef = doc(db,'posts',postId); const s = await tx.get(pRef); if(!s.exists()) return; tx.update(pRef, { commentsCount: (s.data().commentsCount||0) + 1 }); });
-    inp.value = '';
-    toast('Đã gửi bình luận');
-  }catch(e){ console.error('comment err', e); toast('Lỗi khi gửi bình luận'); }
-}
+    function renderPost(id, data, me){
+      let card = $(`[data-id="${id}"]`, feed);
+      if(!card){
+        card = postTpl.content.firstElementChild.cloneNode(true);
+        card.dataset.id = id;
+        feed.appendChild(card);
+        // Long-press emoji
+        let pressTimer; const bubble = $('.emoji-bubble', card);
+        card.addEventListener('touchstart', ()=>{ pressTimer=setTimeout(()=>{bubble.style.display='block'},450)}, {passive:true});
+        card.addEventListener('touchend', ()=>{ clearTimeout(pressTimer); setTimeout(()=> bubble.style.display='none', 800) }, {passive:true});
+        card.addEventListener('mousedown', ()=>{ pressTimer=setTimeout(()=>{bubble.style.display='block'},500)});
+        card.addEventListener('mouseup', ()=>{ clearTimeout(pressTimer); setTimeout(()=> bubble.style.display='none', 800) });
+        bubble.addEventListener('click', e=>{
+          if(e.target.textContent.trim()) reactToPost(id, e.target.textContent.trim());
+        });
+        $('.commentBtn', card).addEventListener('click', ()=> doComment(id, $('.commentInput',card).value, card));
+        $('.delBtn', card).addEventListener('click', ()=> deletePost(id, data.uid));
+      }
+      // author
+      getDoc(doc(db,'users',data.uid)).then(u=>{
+        const ud=u.data()||{};
+        $('.author-name',card).textContent = ud.displayName||'Ẩn danh';
+        $('.author-avatar',card).src = ud.avatar || `https://api.dicebear.com/9.x/thumbs/svg?seed=${data.uid.slice(0,6)}`;
+        const badge = $('.follow-badge',card);
+        if((ud.followers||0) >= 5) { badge.textContent='💎' } else { badge.textContent=''; }
+      });
+      // follow button state
+      bindFollowButton($('.followBtn',card), data.uid);
 
-/* ========== delete post ========== */
-async function deletePost(postId){
-  if(!currentUser) return toast('Đăng nhập để xóa');
-  const p = posts.find(x=>x.id===postId);
-  if(!p) return;
-  if(!(currentUser.isAdmin || p.uid === currentUser.uid)) return toast('Bạn không có quyền xóa bài này');
-  if(!confirm('Xác nhận xóa bài?')) return;
-  try{ await deleteDoc(doc(db,'posts',postId)); toast('Đã xóa bài'); }catch(e){ console.error(e); toast('Lỗi xóa bài'); }
-}
+      // content
+      $('.content',card).textContent = data.text||'';
+      const media = $('.media',card);
+      if(data.mediaURL){ media.src=data.mediaURL; media.classList.remove('hidden'); }
+      else media.classList.add('hidden');
+      $('.ts',card).textContent = fmt(data.createdAt);
+      $('.views',card).textContent = `${data.views||0} lượt xem`;
+      $('.hot',card).textContent = (data.views||0) >= 10 ? '🔥' : '';
+      const reacts = data.reacts||{}; $('.reacts',card).textContent = Object.entries(reacts).map(([k,v])=>`${k} ${v}`).join(' · ');
 
-/* ========== upload helper ========== */
-async function uploadFileToStorage(file, path){
-  const refStore = ref(storage, path);
-  await uploadBytes(refStore, file);
-  return await getDownloadURL(refStore);
-}
+      // comments stream
+      const cWrap = $('.comment-stream',card);
+      onSnapshot(query(collection(db,'posts',id,'comments'), orderBy('createdAt','desc'), limit(30)), snap=>{
+        cWrap.innerHTML='';
+        snap.forEach(d=>{
+          const c=d.data();
+          const el=document.createElement('div');
+          el.className='text-sm';
+          el.textContent=`${c.byName||'Ẩn danh'}: ${c.text}`;
+          cWrap.prepend(el);
+        });
+        cWrap.scrollTop = cWrap.scrollHeight; // trôi khi có mới
+      });
 
-/* ========== add post (non-blocking + safe limit) ========== */
-btnPost.onclick = async ()=>{
-  if(!currentUser) return toast('Đăng nhập để đăng bài');
-  const content = postContent.value.trim();
-  const file = imageFile.files[0];
-  if(!content && !file) return toast('Nội dung rỗng');
-
-  // Check limit: query latest post by this uid
-  if(!currentUser.isAdmin){
-    try{
-      const qy = query(collection(db,'posts'), where('uid','==',currentUser.uid), orderBy('ts','desc'), limit(1));
-      const snap = await getDocs(qy);
-      if(!snap.empty){
-        const last = snap.docs[0].data().ts;
-        if(last && (now() - last.toMillis() < 24*60*60*1000)){
-          return toast('Bạn chỉ được đăng 1 lần trong 24 giờ');
+      // view counting once per session per post
+      if(me){
+        const key = 'viewed_'+id; if(!sessionStorage.getItem(key)){
+          sessionStorage.setItem(key,'1');
+          updateDoc(doc(db,'posts',id),{ views:(data.views||0)+1 });
         }
       }
-    }catch(e){ console.warn('limit check fail', e); }
-  }
-
-  btnPost.disabled = true; uploadMask.style.display='flex';
-  try{
-    let imageURL = '';
-    if(file){
-      const path = `postImages/${Date.now()}_${file.name}`;
-      imageURL = await uploadFileToStorage(file, path);
     }
-    const postObj = {
-      uid: currentUser.uid,
-      user: currentUser.name,
-      avatar: currentUser.avatarUrl || '',
-      text: content,
-      img: imageURL,
-      ts: serverTimestamp(),
-      views: 0,
-      viewers: [],
-      reactions: {},
-      userReactions: {},
-      commentsCount: 0
-    };
-    await addDoc(collection(db,'posts'), postObj);
-    postContent.value = ''; imageFile.value = '';
-    toast('Đã đăng bài');
-  }catch(e){ console.error('add post err', e); toast('Lỗi khi thêm bài'); }
-  finally{ btnPost.disabled=false; uploadMask.style.display='none'; }
-};
 
-/* ========== Playlist per-user (profiles/{uid}/playlist) ========== */
-function startPlaylistListener(){
-  if(!currentUser) return;
-  if(playlistUnsub) playlistUnsub();
-  const q = query(collection(db,'users',currentUser.uid,'playlist'), orderBy('order','asc'));
-  playlistUnsub = onSnapshot(q, snap=>{
-    playlist = [];
-    snap.forEach(d => playlist.push({ id: d.id, ...d.data() }));
-    populateMusic();
-  });
-}
-
-function stopPlaylistListener(){ if(playlistUnsub){ playlistUnsub(); playlistUnsub = null; } playlist = []; populateMusic(); }
-
-async function ensureDefaultPlaylist(){
-  if(!currentUser) return;
-  try{
-    const snap = await getDocs(collection(db,'users',currentUser.uid,'playlist'));
-    if(snap.empty){
-      const defaults = [
-        { url:'https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Kevin_MacLeod/Classical_Sampler/Kevin_MacLeod_-_Crinoline_Dream.mp3', title:'Crinoline Dream' },
-        { url:'https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Scott_Holmes_Music/Corporate__Motivational_Music/Scott_Holmes_Music_-_Inspiring_Corporate.mp3', title:'Inspiring Corporate' },
-        { url:'https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Kevin_MacLeod/Best_of_2017/Kevin_MacLeod_-_Monkeys_Spinning_Monkeys.mp3', title:'Monkeys Spinning Monkeys' }
-      ];
-      let order = 0;
-      for(const it of defaults) await addDoc(collection(db,'users',currentUser.uid,'playlist'), { title: it.title, url: it.url, order: order++ });
+    async function reactToPost(id, emoji){
+      const postRef = doc(db,'posts',id);
+      const snap = await getDoc(postRef); const data = snap.data()||{}; const reacts=data.reacts||{};
+      reacts[emoji] = (reacts[emoji]||0) + 1;
+      await updateDoc(postRef,{ reacts });
     }
-  }catch(e){ console.warn('seed playlist err', e); }
-}
 
-function populateMusic(){
-  musicSelect.innerHTML = '<option value="">-- chọn nhạc --</option>';
-  playlist.forEach((m,i)=>{ const o=document.createElement('option'); o.value = i; o.textContent = m.title || m.url; musicSelect.appendChild(o); });
-}
+    async function doComment(id, text, card){
+      text = (text||'').trim(); if(!text) return; $('.commentInput',card).value='';
+      const user = auth.currentUser; if(!user) return;
+      const meDoc = await getDoc(doc(db,'users',user.uid));
+      await addDoc(collection(db,'posts',id,'comments'),{ text, by:user.uid, byName: meDoc.data()?.displayName||user.email, createdAt: serverTimestamp() });
+    }
 
-musicSelect.onchange = ()=> {
-  const i = musicSelect.value;
-  if(i === ''){ bgMusic.pause(); bgMusic.src = ''; } else { bgMusic.src = playlist[i].url; bgMusic.play().catch(()=>{}); }
-};
-musicPlay.onclick = ()=> { if(bgMusic.paused) bgMusic.play().catch(()=>toast('Autoplay bị chặn')); else bgMusic.pause(); };
-btnPrev.onclick = ()=>{ if(!playlist.length) return; let i = Number(musicSelect.value || 0); i = (i-1+playlist.length)%playlist.length; musicSelect.value = i; musicSelect.onchange(); };
-btnNext.onclick = ()=>{ if(!playlist.length) return; let i = Number(musicSelect.value || 0); i = (i+1)%playlist.length; musicSelect.value = i; musicSelect.onchange(); };
+    async function deletePost(id, ownerUid){
+      const me = auth.currentUser; if(!me) return;
+      const meRole = (await getDoc(doc(db,'users',me.uid))).data()?.role||'user';
+      if(meRole!=='admin' && me.uid!==ownerUid){ return alert('Bạn không có quyền xoá bài này.'); }
+      if(confirm('Xoá bài viết?')) await deleteDoc(doc(db,'posts',id));
+    }
 
-btnAddMusic.onclick = async ()=>{
-  if(!currentUser) return toast('Đăng nhập để quản lý playlist');
-  const url = prompt('Dán URL mp3 (http/https):'); if(!url) return;
-  const title = prompt('Tiêu đề (bỏ trống lấy tên file)') || url.split('/').pop();
-  try{
-    const order = playlist.length ? Math.max(...playlist.map(x=>x.order||0))+1 : 0;
-    await addDoc(collection(db,'users',currentUser.uid,'playlist'), { title, url, order });
-  }catch(e){ console.error(e); toast('Lỗi thêm bài hát'); }
-};
+    // ===== Feed live query =====
+    onSnapshot(query(collection(db,'posts'), orderBy('createdAt','desc'), limit(50)), snap=>{
+      const me = auth.currentUser;
+      snap.docChanges().forEach(ch=>{
+        if(ch.type==='removed'){ const el=$(`[data-id="${ch.doc.id}"]`,feed); if(el) el.remove(); }
+        else renderPost(ch.doc.id, ch.doc.data(), !!me);
+      });
+    });
 
-btnRemoveMusic.onclick = async ()=>{
-  if(!currentUser) return toast('Đăng nhập để quản lý playlist');
-  const i = Number(musicSelect.value);
-  if(Number.isNaN(i) || i<0 || i>=playlist.length) return toast('Chọn bài để xóa');
-  try{ await deleteDoc(doc(db,'users',currentUser.uid,'playlist', playlist[i].id)); }catch(e){ console.error(e); toast('Lỗi xóa bài hát'); }
-};
+    // ===== DM =====
+    const dmPanel=$('#dmPanel'), openDM=$('#openDM'), closeDM=$('#closeDM'), dmUsers=$('#dmUsers'), dmThread=$('#dmThread');
+    let currentDM=null;
 
-/* ========== theme ========== */
-themeToggle.onclick = ()=>{ const cur = document.documentElement.getAttribute('data-theme'); const next = cur === 'light' ? '' : 'light'; document.documentElement.setAttribute('data-theme', next); localStorage.setItem('ms_theme', next); };
-(function restoreTheme(){ const t = localStorage.getItem('ms_theme')||''; document.documentElement.setAttribute('data-theme', t); })();
+    openDM.addEventListener('click', ()=> dmPanel.classList.remove('hidden'));
+    closeDM.addEventListener('click', ()=> dmPanel.classList.add('hidden'));
 
-/* ========== small helpers: load my following on login ========== */
-async function startMyFollowingWatch(){
-  if(!currentUser) return;
-  await loadMyFollowing();
-  // optional: realtime update following set by listening to user's following subcollection
-  onSnapshot(collection(db,'users',currentUser.uid,'following'), snap=>{
-    followingSet.clear();
-    snap.forEach(d => followingSet.add(d.id));
-  });
-}
+    function chatId(a,b){ return [a,b].sort().join('_'); }
 
-/* ========== cleanup old posts (run only on admin clients to avoid spam) ========== */
-setInterval(async ()=>{
-  if(!currentUser || !currentUser.isAdmin) return;
-  try{
-    const qy = query(collection(db,'posts'), orderBy('ts','desc'), limit(30));
-    const snaps = await getDocs(qy);
-    const cutoff = Date.now() - 24*60*60*1000;
-    snaps.forEach(async d=>{
-      const p = d.data();
-      if(p.ts && p.ts.toMillis() < cutoff){
-        try{ await deleteDoc(doc(db,'posts',d.id)); }catch(e){}
+    $('#dmForm').addEventListener('submit', async e=>{
+      e.preventDefault(); if(!currentDM||!auth.currentUser) return; const t=$('#dmInput').value.trim(); if(!t) return; $('#dmInput').value='';
+      const cid=chatId(auth.currentUser.uid,currentDM);
+      await addDoc(collection(db,'chats',cid,'msgs'), { text:t, by:auth.currentUser.uid, at: serverTimestamp() });
+    });
+
+    async function loadThread(){
+      if(!currentDM || !auth.currentUser) return;
+      const cid = chatId(auth.currentUser.uid, currentDM);
+      onSnapshot(query(collection(db,'chats',cid,'msgs'), orderBy('at','asc'), limit(200)), snap=>{
+        dmThread.innerHTML='';
+        snap.forEach(m=>{
+          const d=m.data(); const mine = d.by===auth.currentUser.uid;
+          const row=document.createElement('div');
+          row.className=`mb-2 flex ${mine? 'justify-end':''}`;
+          row.innerHTML=`<div class="max-w-[70%] px-3 py-2 rounded-xl ${mine? 'bg-indigo-600 text-white':'bg-black/10 dark:bg-white/10'}">${d.text}</div>`;
+          dmThread.appendChild(row);
+        });
+        dmThread.scrollTop=dmThread.scrollHeight;
+      });
+    }
+
+    onAuthStateChanged(auth, async user=>{
+      if(user){
+        authView.classList.add('hidden'); appView.classList.remove('hidden'); logoutBtn.classList.remove('hidden');
+        setupPresence(user); showRandomBadge(); refreshLimitHint();
+        const u = await getDoc(doc(db,'users',user.uid));
+        const d = u.data()||{}; $('#meName').textContent=d.displayName||user.email; $('#meEmail').textContent=user.email; $('#meFollower').textContent = d.followers||0; $('#followerBadge').textContent = (d.followers||0)>=5 ? '💎':'';
+        if(d.avatar) $('#avatarImg').src=d.avatar;
+
+        // list users for DM
+        onSnapshot(query(collection(db,'users'), limit(50)), snap=>{
+          dmUsers.innerHTML='';
+          snap.forEach(x=>{
+            if(x.id===user.uid) return;
+            const btn=document.createElement('button');
+            btn.className='w-full px-3 py-2 rounded-xl bg-black/70 text-white text-left';
+            btn.textContent=(x.data().displayName||x.data().email||'User')+` — ${x.id.slice(0,6)}`;
+            btn.onclick=()=>{ currentDM=x.id; loadThread(); };
+            dmUsers.appendChild(btn);
+          });
+        });
+
+        // ADMIN enable
+        const role = d.role||'user';
+        if(role==='admin'){ $('#adminVault').classList.remove('admin-only'); }
+
+      } else {
+        authView.classList.remove('hidden'); appView.classList.add('hidden'); logoutBtn.classList.add('hidden');
       }
     });
-  }catch(e){}
-}, 60*1000);
 
-/* ========== initial setup on load (attach load more button) ========== */
-(function init(){
-  // append load more button area into feed
-  loadMoreWrap.style.display='none';
-  feed.appendChild(loadMoreWrap);
-})();
-</script>
+    // ===== Search user (quick follow) =====
+    $('#searchUser').addEventListener('keydown', async e=>{
+      if(e.key!=='Enter') return; e.preventDefault(); const q=e.target.value.trim(); if(!q) return;
+      const res = await getDocs(query(collection(db,'users'), where('displayName','==',q)));
+      if(res.empty) return alert('Không tìm thấy');
+      const t=res.docs[0]; if(confirm(`Follow ${t.data().displayName}?`)){
+        const me=auth.currentUser; if(!me) return; const fRef = doc(db,'users',t.id,'followers', me.uid);
+        await setDoc(fRef,{ at: serverTimestamp() });
+        const followersSnap = await getDocs(collection(db,'users',t.id,'followers'));
+        await updateDoc(doc(db,'users',t.id),{ followers: followersSnap.size });
+      }
+    });
+
+    // ===== Admin actions =====
+    $('#deleteAllPosts').addEventListener('click', async ()=>{
+      const me=auth.currentUser; if(!me) return; const role=(await getDoc(doc(db,'users',me.uid))).data()?.role||'user';
+      if(role!=='admin') return alert('Chỉ admin');
+      if(!confirm('Xác nhận xoá TẤT CẢ bài viết?')) return;
+      const qs=await getDocs(query(collection(db,'posts'), limit(200)));
+      const batch=writeBatch(db); qs.docs.forEach(d=> batch.delete(doc(db,'posts',d.id))); await batch.commit();
+      alert('Đã xoá.');
+    });
+
+    async function refreshVaultList(){
+      const me=auth.currentUser; if(!me) return; const role=(await getDoc(doc(db,'users',me.uid))).data()?.role||'user';
+      if(role!=='admin') return;
+      const ul=$('#vaultList'); ul.innerHTML='';
+      const folder=sRef(storage,'vault/');
+      const items = await listAll(folder);
+      for(const it of items.items){
+        const url=await getDownloadURL(it);
+        const li=document.createElement('li');
+        li.innerHTML=`<a class="underline" href="${url}" target="_blank">${it.name}</a>`;
+        ul.appendChild(li);
+      }
+    }
+
+    $('#uploadVault').addEventListener('click', async ()=>{
+      const f=$('#vaultFile').files?.[0]; if(!f) return; const me=auth.currentUser; const role=(await getDoc(doc(db,'users',me.uid))).data()?.role||'user'; if(role!=='admin') return alert('Chỉ admin');
+      const r=sRef(storage, `vault/${Date.now()}_${f.name}`); await uploadBytes(r,f); await refreshVaultList();
+    });
+    $('#refreshVault').addEventListener('click', refreshVaultList);
+
+  </script>
 </body>
 </html>
