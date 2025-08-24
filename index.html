@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mini Social — Firestore (Auth, Follow, Playlists)</title>
+<style>
+  :root{--bg:#0b0b0c;--text:#eaeaea;--muted:rgba(234,234,234,.6);--card:rgba(255,255,255,.03);--accent:#ff3b30;--border:rgba(255,255,255,.06)}
+  [data-theme="light"]{--bg:#f6f6f7;--text:#111;--muted:rgba(0,0,0,.6);--card:rgba(0,0,0,.03);--border:rgba(0,0,0,.08)}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  header{position:sticky;top:0;z-index:40;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg, rgba(0,0,0,.25), transparent)}
+  .brand{font-weight:800;color:var(--accent)}
+  .app{position:relative;z-index:10;max-width:980px;margin:12px auto;padding:8px}
+  .card{background:var(--card);border-radius:12px;padding:12px;border:1px solid var(--border);box-shadow:0 6px 30px rgba(0,0,0,.25)}
+  .row{display:flex;gap:10px;align-items:center}
+  input,textarea,select,button{font-family:inherit}
+  input,textarea,select{padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);outline:none}
+  textarea{min-height:90px;resize:vertical}
+  .btn{background:transparent;border:1px solid var(--border);padding:8px 10px;border-radius:10px;color:var(--text);cursor:pointer}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .stage{display:flex;gap:16px;align-items:flex-start}
+  .left{flex:1}
+  .right{width:340px}
+  #feed{max-height:72vh;overflow:auto;padding:8px}
+  .post{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:12px;border-radius:10px;margin-bottom:12px;transition:transform .12s,box-shadow .12s}
+  .post:hover{transform:translateY(-6px);box-shadow:0 18px 44px rgba(0,0,0,.36)}
+  .meta{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:13px}
+  .author{display:flex;align-items:center;gap:10px}
+  .avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--border);flex-shrink:0}
+  .reactions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .reaction{padding:6px 10px;border-radius:12px;background:rgba(255,255,255,0.02);cursor:pointer;border:1px solid var(--border);display:inline-flex;align-items:center;gap:8px}
+  .reaction.selected{border-color:var(--accent);box-shadow:0 8px 24px rgba(0,0,0,0.35);transform:scale(1.04)}
+  .commentsToggle{cursor:pointer;color:var(--muted);font-size:13px}
+  .comment-list{display:flex;flex-direction:column-reverse;gap:6px;overflow-y:auto;padding:6px;max-height:160px}
+  .comment{display:flex;gap:8px;align-items:flex-start;background:rgba(255,255,255,0.02);padding:8px;border-radius:8px}
+  .c-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover}
+  .tiny{font-size:12px;color:var(--muted)}
+  .pill{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border)}
+  .music-fixed{position:fixed;left:12px;bottom:12px;z-index:60;background:rgba(0,0,0,0.45);padding:10px;border-radius:10px;border:1px solid var(--border)}
+  .music-fixed select{min-width:200px}
+  .loadingMask{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.36);z-index:20;border-radius:12px;align-items:center;justify-content:center}
+  .spinner{width:22px;height:22px;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .controls{display:flex;gap:8px;align-items:center}
+  @media(max-width:920px){ .stage{flex-direction:column} .right{width:100%} .music-fixed select{min-width:140px} }
+</style>
+</head>
+<body data-theme="">
+
+<header>
+  <div class="brand">Mini Social — Firestore</div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <div id="whoInfo" class="pill tiny">Chưa đăng nhập</div>
+    <button id="themeToggle" class="btn tiny">Theme</button>
+    <button id="btnLogout" class="btn tiny" style="display:none">Đăng xuất</button>
+  </div>
+</header>
+
+<div class="app">
+  <div class="card stage">
+    <div class="left">
+      <div id="composerWrap" class="card" style="display:none;position:relative">
+        <div id="uploadMask" class="loadingMask"><div class="spinner"></div></div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <img id="meAvatar" class="avatar" src="" alt="avatar" />
+          <div>
+            <div id="meName" style="font-weight:700">—</div>
+            <div id="meRole" class="tiny">User</div>
+          </div>
+          <div style="margin-left:auto" class="tiny pill" id="limitInfo">1 bài / 24h</div>
+        </div>
+        <textarea id="postContent" placeholder="Viết bài..."></textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <input id="imageFile" type="file" accept="image/*" class="tiny" />
+          <button id="btnPost" class="btn">Đăng</button>
+          <div style="margin-left:auto" class="tiny" id="composerHint">Bạn có thể đăng ảnh + text</div>
+        </div>
+      </div>
+
+      <div id="feed" class="card" style="margin-top:12px">
+        <div id="emptyHint" class="tiny" style="text-align:center;padding:30px;color:var(--muted)">Chưa có bài viết — đăng bài đầu tiên nhé!</div>
+        <!-- posts appended here -->
+        <div id="loadMoreWrap" style="text-align:center;padding:8px;display:none"><button id="btnLoadMore" class="btn tiny">Tải thêm</button></div>
+      </div>
+    </div>
+
+    <aside class="right">
+      <div class="card" id="authCard">
+        <div style="font-weight:700;margin-bottom:8px">Auth</div>
+        <div id="authBox">
+          <div id="registerPanel" style="display:none">
+            <input id="regEmail" placeholder="Email" />
+            <input id="regPass" type="password" placeholder="Mật khẩu" />
+            <input id="regAvatarUrl" placeholder="Avatar URL (tùy chọn)" />
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="btnRegister" class="btn">Đăng ký</button>
+              <button id="btnShowLogin" class="btn">Đăng nhập</button>
+            </div>
+          </div>
+
+          <div id="loginPanel">
+            <input id="loginEmail" placeholder="Email" />
+            <input id="loginPass" type="password" placeholder="Mật khẩu" />
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="btnLogin" class="btn">Đăng nhập</button>
+              <button id="btnShowReg" class="btn">Đăng ký</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height:12px"></div>
+
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:8px">Music (playlist của bạn)</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="controls">
+            <select id="musicList"></select>
+            <button id="musicPlay" class="btn">⏯</button>
+          </div>
+          <div class="tiny">Bạn có thể thêm URL mp3 • Playlist lưu theo tài khoản</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="btnAddMusic" class="btn tiny">+Add</button>
+            <button id="btnPrev" class="btn tiny">Prev</button>
+            <button id="btnNext" class="btn tiny">Next</button>
+            <button id="btnRemoveMusic" class="btn tiny">Remove</button>
+          </div>
+          <audio id="bgMusic" loop></audio>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div id="modal" class="modal"><div class="box card" id="modalBox"></div></div>
+<div id="toastRoot"></div>
+
+<script type="module">
+/* ================= FIREBASE IMPORTS ================= */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy,
+  doc, getDoc, updateDoc, runTransaction, deleteDoc, where, getDocs, limit, startAfter
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+/* ================= FIREBASE CONFIG (bạn đã cung cấp) ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyBTcjWMAWAd6t3fPOi7jGFjMW3PHdZBfg",
+  authDomain: "myblog-2d856.firebaseapp.com",
+  projectId: "myblog-2d856",
+  storageBucket: "myblog-2d856.appspot.com",
+  messagingSenderId: "784534821820",
+  appId: "1:784534821820:web:c1f8271825c192a93f3890",
+  measurementId: "G-RRFMNJLZTT"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const storage = getStorage(app);
+const auth = getAuth(app);
+
+/* ================= HELPERS & STATE ================= */
+const $ = s => document.querySelector(s);
+const toast = (t,ms=2400)=>{ const d=document.createElement('div'); d.className='toast'; d.innerText=t; document.body.appendChild(d); setTimeout(()=>d.remove(),ms); };
+const uidLocal = ()=> localStorage.getItem('ms_uid') || (function(){ const id = 'u_'+Math.random().toString(36).slice(2,10); localStorage.setItem('ms_uid', id); return id })();
+const adminEmails = ["admin@gmail.com","iloveanhtu09@gmail.com"];
+function now(){ return Date.now(); }
+
+let currentUser = null;
+let posts = [];
+let lastVisible = null;
+let listeningRealtime = null;
+let followingSet = new Set();
+let playlist = [];
+let playlistUnsub = null;
+
+/* UI refs */
+const composerWrap = $('#composerWrap'), feed = $('#feed'), emptyHint = $('#emptyHint'), uploadMask = $('#uploadMask');
+const btnRegister = $('#btnRegister'), btnShowLogin = $('#btnShowLogin'), btnShowReg = $('#btnShowReg');
+const btnLogin = $('#btnLogin'), btnLogout = $('#btnLogout');
+const regEmail = $('#regEmail'), regPass = $('#regPass'), regAvatarUrl = $('#regAvatarUrl');
+const loginEmail = $('#loginEmail'), loginPass = $('#loginPass');
+const postContent = $('#postContent'), imageFile = $('#imageFile'), btnPost = $('#btnPost');
+const whoInfo = $('#whoInfo'), meAvatar = $('#meAvatar'), meName = $('#meName'), meRole = $('#meRole'), limitInfo = $('#limitInfo');
+const musicSelect = $('#musicList'), bgMusic = $('#bgMusic'), musicPlay = $('#musicPlay'), btnAddMusic = $('#btnAddMusic'), btnPrev = $('#btnPrev'), btnNext = $('#btnNext'), btnRemoveMusic = $('#btnRemoveMusic');
+const modal = $('#modal'), modalBox = $('#modalBox'), themeToggle = $('#themeToggle');
+const btnLoadMore = $('#btnLoadMore'), loadMoreWrap = $('#loadMoreWrap');
+
+/* ========== UI helpers ========== */
+function defaultAvatarSVG(){ const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128'><rect width='100%' height='100%' fill='#777'/></svg>`; return 'data:image/svg+xml;base64,'+btoa(svg); }
+function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ========== AUTH flows & profile ========== */
+btnShowLogin.onclick = ()=>{ $('#registerPanel').style.display='none'; $('#loginPanel').style.display='block'; };
+btnShowReg.onclick = ()=>{ $('#registerPanel').style.display='block'; $('#loginPanel').style.display='none'; };
+
+btnRegister.onclick = async ()=>{
+  const email = regEmail.value.trim(); const pw = regPass.value;
+  if(!email || !pw) return toast('Nhập email & mật khẩu');
+  try{
+    const cred = await createUserWithEmailAndPassword(auth,email,pw);
+    const photoURL = regAvatarUrl.value.trim() || '';
+    await updateProfile(cred.user, { displayName: email.split('@')[0], photoURL });
+    // create profile doc
+    await setProfileDoc(cred.user.uid, { uid: cred.user.uid, email: cred.user.email, displayName: cred.user.displayName || email.split('@')[0], avatar: photoURL, followers:0, following:0 });
+    toast('Đăng ký thành công — đã tạo profile');
+    regEmail.value=''; regPass.value=''; regAvatarUrl.value='';
+    btnShowLogin.click();
+  }catch(e){ console.error(e); toast('Lỗi đăng ký: '+e.message); }
+};
+
+btnLogin.onclick = async ()=>{
+  const email = loginEmail.value.trim(); const pw = loginPass.value;
+  if(!email || !pw) return toast('Nhập email & mật khẩu');
+  try{ await signInWithEmailAndPassword(auth, email, pw); toast('Đăng nhập thành công'); }catch(e){ console.error(e); toast('Lỗi đăng nhập: '+e.message); }
+};
+
+btnLogout.onclick = ()=> signOut(auth);
+
+/* create or update profile doc */
+async function setProfileDoc(uid, data){
+  try{
+    await updateDoc(doc(db,'profiles',uid), data).catch(async ()=>{ await addDoc(collection(db,'profiles'), Object.assign({id:uid}, data)); /* fallback if no doc */});
+  }catch(e){
+    // fallback create
+    try{ await setDoc(doc(db,'profiles',uid), data); }catch(err){ console.warn('setProfileDoc err', err); }
+  }
+}
+
+/* ensure profile exists and has counts */
+async function ensureProfile(uid, user){
+  try{
+    const pRef = doc(db,'profiles',uid);
+    const pSnap = await getDoc(pRef);
+    if(!pSnap.exists()){
+      await setDoc(pRef, {
+        uid,
+        email: user.email,
+        displayName: user.displayName || user.email.split('@')[0],
+        avatar: user.photoURL || '',
+        followers: 0,
+        following: 0,
+        createdAt: serverTimestamp()
+      });
+    }
+  }catch(e){ console.warn('ensureProfile', e); }
+}
+
+/* follow/unfollow helpers (bi-directional) */
+async function followUser(targetUid){
+  if(!currentUser) return toast('Đăng nhập để follow');
+  if(currentUser.uid === targetUid) return;
+  const myFollowingRef = doc(db,'users',currentUser.uid,'following',targetUid);
+  const theirFollowersRef = doc(db,'users',targetUid,'followers',currentUser.uid);
+  try{
+    await runTransaction(db, async (tx)=>{
+      const f1 = await tx.get(myFollowingRef);
+      if(f1.exists()) return; // already following
+      tx.set(myFollowingRef, { uid: targetUid, ts: serverTimestamp() });
+      tx.set(theirFollowersRef, { uid: currentUser.uid, ts: serverTimestamp() });
+      // increment counts in profile (if exists)
+      const profRef = doc(db,'profiles',targetUid);
+      const myProfRef = doc(db,'profiles',currentUser.uid);
+      const p = await tx.get(profRef);
+      const mp = await tx.get(myProfRef);
+      if(p.exists()) tx.update(profRef, { followers: (p.data().followers||0) + 1 });
+      if(mp.exists()) tx.update(myProfRef, { following: (mp.data().following||0) + 1 });
+    });
+    followingSet.add(targetUid);
+    toast('Đã follow');
+  }catch(e){ console.error('follow err', e); toast('Lỗi follow'); }
+}
+
+async function unfollowUser(targetUid){
+  if(!currentUser) return toast('Đăng nhập để unfollow');
+  const myFollowingRef = doc(db,'users',currentUser.uid,'following',targetUid);
+  const theirFollowersRef = doc(db,'users',targetUid,'followers',currentUser.uid);
+  try{
+    await runTransaction(db, async (tx)=>{
+      const f1 = await tx.get(myFollowingRef);
+      if(!f1.exists()) return;
+      tx.delete(myFollowingRef);
+      tx.delete(theirFollowersRef);
+      const profRef = doc(db,'profiles',targetUid);
+      const myProfRef = doc(db,'profiles',currentUser.uid);
+      const p = await tx.get(profRef);
+      const mp = await tx.get(myProfRef);
+      if(p.exists()) tx.update(profRef, { followers: Math.max(0,(p.data().followers||1) - 1) });
+      if(mp.exists()) tx.update(myProfRef, { following: Math.max(0,(mp.data().following||1) - 1) });
+    });
+    followingSet.delete(targetUid);
+    toast('Đã unfollow');
+  }catch(e){ console.error('unfollow err', e); toast('Lỗi unfollow'); }
+}
+
+/* load following list for current user (to check follow button) */
+async function loadMyFollowing(){
+  followingSet.clear();
+  if(!currentUser) return;
+  try{
+    const snap = await getDocs(collection(db,'users',currentUser.uid,'following'));
+    snap.forEach(d => followingSet.add(d.id));
+  }catch(e){ console.warn('loadMyFollowing', e); }
+}
+
+/* ========== ON AUTH STATE ========== */
+onAuthStateChanged(auth, async (user)=>{
+  if(user){
+    currentUser = {
+      uid: user.uid,
+      email: user.email,
+      name: user.displayName || user.email.split('@')[0],
+      avatarUrl: user.photoURL || '',
+      isAdmin: adminEmails.includes(user.email)
+    };
+    whoInfo.textContent = `Bạn: ${currentUser.name}${currentUser.isAdmin ? ' (admin)' : ''}`;
+    meName.textContent = currentUser.name;
+    meRole.textContent = currentUser.isAdmin ? 'Admin' : 'User';
+    meAvatar.src = currentUser.avatarUrl || defaultAvatarSVG();
+    composerWrap.style.display = 'block';
+    btnLogout.style.display = 'inline-block';
+    $('#authCard').style.display = 'none';
+    limitInfo.textContent = currentUser.isAdmin ? 'Không giới hạn' : '1 bài / 24h';
+    await ensureProfile(currentUser.uid, user);
+    await loadMyFollowing();
+    startRealtimeFeed(); // start feed
+    startPlaylistListener();
+  }else{
+    currentUser = null;
+    whoInfo.textContent = 'Chưa đăng nhập';
+    meAvatar.src = '';
+    composerWrap.style.display = 'none';
+    btnLogout.style.display = 'none';
+    $('#authCard').style.display = 'block';
+    feed.innerHTML = ''; posts = []; lastVisible = null;
+    stopPlaylistListener();
+  }
+});
+
+/* ========== POSTS FEED (paginated + realtime for latest chunk) ========== */
+const PAGE_SIZE = 10;
+let realtimeUnsub = null;
+
+function startRealtimeFeed(){
+  // stop old
+  if(realtimeUnsub) realtimeUnsub();
+
+  // realtime for latest PAGE_SIZE posts
+  const q = query(collection(db,'posts'), orderBy('ts','desc'), limit(PAGE_SIZE));
+  realtimeUnsub = onSnapshot(q, snap=>{
+    posts = [];
+    snap.forEach(d => posts.push({ id: d.id, ...d.data() }));
+    lastVisible = snap.docs[snap.docs.length-1] || null;
+    renderFeed();
+    // show load more if more exists
+    loadMoreWrap.style.display = 'block';
+  });
+}
+
+/* load older posts (one-shot) */
+async function loadMorePosts(){
+  if(!lastVisible) return;
+  btnLoadMore.disabled = true;
+  try{
+    const qMore = query(collection(db,'posts'), orderBy('ts','desc'), startAfter(lastVisible), limit(PAGE_SIZE));
+    const snap = await getDocs(qMore);
+    if(!snap.empty){
+      snap.forEach(d => posts.push({ id: d.id, ...d.data() }));
+      lastVisible = snap.docs[snap.docs.length-1] || lastVisible;
+      renderFeed(true); // append
+    } else {
+      toast('Không còn bài cũ hơn');
+      loadMoreWrap.style.display = 'none';
+    }
+  }catch(e){ console.error('loadMore err', e); toast('Lỗi tải thêm'); }
+  finally{ btnLoadMore.disabled = false; }
+}
+btnLoadMore.onclick = loadMorePosts;
+
+function renderFeed(append=false){
+  if(!append) feed.innerHTML = '';
+  if(posts.length === 0){ emptyHint.style.display = 'block'; return; } else emptyHint.style.display='none';
+  // use requestAnimationFrame to avoid blocking UI when inserting many nodes
+  requestAnimationFrame(()=>{
+    posts.forEach((p, idx)=>{
+      // if appending, only append new ones at end; to keep simple, we clear and re-render.
+      // create node
+      const node = createPostNode(p);
+      feed.appendChild(node);
+    });
+    // append load more button area
+    if(loadMoreWrap.parentElement !== feed) feed.appendChild(loadMoreWrap);
+  });
+}
+
+/* ========== createPostNode (lightweight, lazy comment subscribe) ========== */
+function createPostNode(p){
+  const n = document.createElement('div'); n.className='post'; n.dataset.id = p.id;
+  // header
+  const header = document.createElement('div'); header.className='meta';
+  const left = document.createElement('div'); left.className='author';
+  const img = document.createElement('img'); img.className='avatar'; img.src = p.avatar || defaultAvatarSVG(); img.loading='lazy'; img.onerror = ()=> img.src = defaultAvatarSVG();
+  const nameWrap = document.createElement('div');
+  const nameSpan = document.createElement('div'); nameSpan.style.fontWeight='700'; nameSpan.textContent = p.user || 'Ẩn danh';
+  const subTiny = document.createElement('div'); subTiny.className='tiny'; subTiny.textContent = p.ts ? new Date(p.ts.seconds ? p.ts.toMillis() : p.ts).toLocaleString() : '';
+  nameWrap.appendChild(nameSpan); nameWrap.appendChild(subTiny);
+  left.appendChild(img); left.appendChild(nameWrap);
+  header.appendChild(left);
+
+  const right = document.createElement('div'); right.style.display='flex'; right.style.alignItems='center'; right.style.gap='10px';
+  const views = document.createElement('div'); views.className='tiny views'; views.textContent = `👁 ${p.views||0}`;
+  right.appendChild(views);
+  header.appendChild(right);
+  n.appendChild(header);
+
+  // content
+  const content = document.createElement('div'); content.style.marginTop='8px'; content.style.whiteSpace='pre-wrap';
+  content.innerHTML = escapeHtml(p.text || '');
+  content.addEventListener('click', ()=> openPostDetail(p.id));
+  n.appendChild(content);
+  if(p.img){ const im = document.createElement('img'); im.src=p.img; im.loading='lazy'; im.style.maxWidth='100%'; im.style.marginTop='8px'; im.style.borderRadius='10px'; n.appendChild(im); }
+
+  // actions
+  const emojis = ['❤️','😂','🔥','👍','😮','🎉'];
+  const rwrap = document.createElement('div'); rwrap.className='reactions';
+  emojis.forEach(e=>{
+    const btn = document.createElement('div'); btn.className='reaction'; btn.dataset.emoji = e;
+    btn.innerHTML = `<span>${e}</span><span class="tiny count" style="margin-left:6px">${p.reactions && p.reactions[e] ? p.reactions[e] : 0}</span>`;
+    if(currentUser && p.userReactions && p.userReactions[currentUser.uid] === e) btn.classList.add('selected');
+    btn.addEventListener('click', ()=> onReactClick(p.id, e, btn));
+    rwrap.appendChild(btn);
+  });
+  n.appendChild(rwrap);
+
+  // follow button next to author if not current user
+  if(currentUser && p.uid !== currentUser.uid){
+    const fbtn = document.createElement('button'); fbtn.className='btn tiny'; fbtn.style.marginTop='8px';
+    fbtn.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
+    fbtn.onclick = async ()=>{
+      fbtn.disabled = true;
+      if(followingSet.has(p.uid)) await unfollowUser(p.uid); else await followUser(p.uid);
+      fbtn.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
+      fbtn.disabled = false;
+    };
+    n.appendChild(fbtn);
+  }
+
+  // comments toggle and count (we maintain commentsCount in post doc for quick count)
+  const cToggle = document.createElement('div'); cToggle.className='commentsToggle tiny'; cToggle.style.marginTop='8px';
+  cToggle.textContent = `💬 ${p.commentsCount||0} Bình luận • Xem chi tiết`;
+  cToggle.onclick = ()=> openPostDetail(p.id);
+  n.appendChild(cToggle);
+
+  // comment input inline (sends to subcollection but don't subscribe here to save reads)
+  const inRow = document.createElement('div'); inRow.style.display='flex'; inRow.style.gap='8px'; inRow.style.marginTop='8px';
+  const input = document.createElement('input'); input.placeholder = 'Bình luận...'; input.id = 'in'+p.id; input.style.flex='1';
+  const send = document.createElement('button'); send.className='btn tiny'; send.textContent = 'Gửi';
+  send.onclick = ()=> handleSendComment(p.id);
+  inRow.appendChild(input); inRow.appendChild(send);
+  n.appendChild(inRow);
+
+  // delete button if owner/admin
+  if(currentUser && (currentUser.isAdmin || currentUser.uid === p.uid)){
+    const del = document.createElement('button'); del.className='btn tiny'; del.textContent='Xóa';
+    del.style.marginTop='8px';
+    del.onclick = ()=> deletePost(p.id);
+    n.appendChild(del);
+  }
+
+  return n;
+}
+
+/* ========== open detail (modal) + lazy subscribe comments + increment views (transaction safe) ========== */
+async function openPostDetail(postId){
+  // increment view (transaction) if viewer not in viewers list
+  const postRef = doc(db,'posts',postId);
+  try{
+    await runTransaction(db, async (tx)=>{
+      const snap = await tx.get(postRef);
+      if(!snap.exists()) throw 'not exist';
+      const data = snap.data();
+      const viewers = data.viewers || [];
+      const userKey = currentUser ? currentUser.uid : uidLocal();
+      if(!viewers.includes(userKey)){
+        const newViewers = Array.from(new Set([...(viewers||[]), userKey]));
+        tx.update(postRef, { views: (data.views||0) + 1, viewers: newViewers });
+      }
+    });
+  }catch(e){ console.warn('view tx err', e); }
+
+  // find post data from local posts cache
+  const p = posts.find(x=>x.id===postId);
+  if(!p){
+    // fallback fetch
+    const snap = await getDoc(postRef);
+    if(snap.exists()) p = { id: snap.id, ...snap.data() };
+    else return;
+  }
+
+  modalBox.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px">
+      <img src="${p.avatar || defaultAvatarSVG()}" style="width:56px;height:56px;border-radius:50%;object-fit:cover" />
+      <div>
+        <div style="font-weight:700">${escapeHtml(p.user||'Ẩn danh')} ${(p.views||0)>=10 ? '🔥' : ''}</div>
+        <div class="tiny">${p.ts ? (new Date(p.ts.seconds ? p.ts.toMillis() : p.ts)).toLocaleString() : ''} · 👁 ${p.views||0}</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;white-space:pre-wrap">${escapeHtml(p.text||'')}</div>
+    ${p.img ? `<img src="${p.img}" style="width:100%;margin-top:12px;border-radius:10px" loading="lazy" />` : ''}
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button id="modalClose" class="btn">Đóng</button>
+      ${currentUser && p.uid !== currentUser.uid ? '<button id="modalFollow" class="btn tiny"></button>' : ''}
+    </div>
+    <div style="margin-top:12px"><strong>Bình luận:</strong></div>
+    <div id="modalComments" style="max-height:300px;overflow:auto;margin-top:6px"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <input id="modalIn" placeholder="Bình luận..." style="flex:1"/>
+      <button id="modalSend" class="btn">Gửi</button>
+    </div>
+  `;
+  modal.style.display = 'flex';
+  $('#modalClose').onclick = ()=> modal.style.display = 'none';
+
+  // follow btn in modal if applicable
+  if(currentUser && p.uid !== currentUser.uid){
+    const mf = $('#modalFollow');
+    mf.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
+    mf.onclick = async ()=>{
+      mf.disabled = true;
+      if(followingSet.has(p.uid)) await unfollowUser(p.uid); else await followUser(p.uid);
+      mf.textContent = followingSet.has(p.uid) ? 'Đã follow' : 'Follow';
+      mf.disabled = false;
+    };
+  }
+
+  // lazy subscribe comments for this post
+  const commentsContainer = $('#modalComments');
+  const cq = query(collection(db,'posts',postId,'comments'), orderBy('ts','desc'));
+  const unsub = onSnapshot(cq, snap=>{
+    commentsContainer.innerHTML = '';
+    snap.forEach(cdoc=>{
+      const c = cdoc.data();
+      const dv = document.createElement('div'); dv.className='comment';
+      dv.innerHTML = `<img src="${c.avatar || defaultAvatarSVG()}" class="c-avatar" onerror="this.src='${defaultAvatarSVG()}'" /><div style="flex:1">${escapeHtml(c.user)}<div class="tiny">${escapeHtml(c.text)}</div></div>`;
+      commentsContainer.appendChild(dv);
+    });
+  });
+
+  // send comment in modal
+  $('#modalSend').onclick = async ()=>{
+    if(!currentUser) return toast('Đăng nhập để bình luận');
+    const text = $('#modalIn').value.trim(); if(!text) return;
+    try{
+      await addDoc(collection(db,'posts',postId,'comments'), { user: currentUser.name, text, ts: serverTimestamp(), avatar: currentUser.avatarUrl||'' });
+      // increment commentsCount atomically
+      await runTransaction(db, async tx=>{ const docSnap = await tx.get(postRef); if(!docSnap.exists()) return; const data = docSnap.data(); tx.update(postRef, { commentsCount: (data.commentsCount||0) + 1 }); });
+      $('#modalIn').value = '';
+    }catch(e){ console.error(e); toast('Lỗi gửi bình luận'); }
+  };
+
+  // cleanup when modal closed
+  modal.addEventListener('click', (ev)=>{ if(ev.target === modal){ unsub(); modal.style.display='none'; } }, { once:true });
+}
+
+/* ========== reactions (transaction) ========== */
+async function onReactClick(postId, emoji, btn){
+  if(!currentUser) return toast('Đăng nhập để phản ứng');
+  const postRef = doc(db,'posts',postId);
+  try{
+    await runTransaction(db, async (tx)=>{
+      const snap = await tx.get(postRef);
+      if(!snap.exists()) throw "No doc";
+      const data = snap.data();
+      const reactions = data.reactions || {};
+      const userReactions = data.userReactions || {};
+      const prev = userReactions[currentUser.uid] || null;
+      if(prev === emoji){
+        reactions[emoji] = Math.max(0, (reactions[emoji]||0) - 1);
+        delete userReactions[currentUser.uid];
+      } else {
+        if(prev){ reactions[prev] = Math.max(0,(reactions[prev]||0) - 1); }
+        reactions[emoji] = (reactions[emoji]||0) + 1;
+        userReactions[currentUser.uid] = emoji;
+      }
+      tx.update(postRef, { reactions, userReactions });
+    });
+    // optimistic UI update not necessary because realtime feed will refresh
+  }catch(e){ console.error('react err', e); toast('Lỗi khi react'); }
+}
+
+/* ========== comments (inline send & modal handled separately) ========== */
+async function handleSendComment(postId){
+  if(!currentUser) return toast('Đăng nhập để bình luận');
+  const inp = $('#in'+postId);
+  if(!inp) return;
+  const text = inp.value.trim(); if(!text) return;
+  try{
+    await addDoc(collection(db,'posts',postId,'comments'), { user: currentUser.name, text, ts: serverTimestamp(), avatar: currentUser.avatarUrl||'' });
+    // increment count
+    await runTransaction(db, async tx=>{ const pRef = doc(db,'posts',postId); const s = await tx.get(pRef); if(!s.exists()) return; tx.update(pRef, { commentsCount: (s.data().commentsCount||0) + 1 }); });
+    inp.value = '';
+    toast('Đã gửi bình luận');
+  }catch(e){ console.error('comment err', e); toast('Lỗi khi gửi bình luận'); }
+}
+
+/* ========== delete post ========== */
+async function deletePost(postId){
+  if(!currentUser) return toast('Đăng nhập để xóa');
+  const p = posts.find(x=>x.id===postId);
+  if(!p) return;
+  if(!(currentUser.isAdmin || p.uid === currentUser.uid)) return toast('Bạn không có quyền xóa bài này');
+  if(!confirm('Xác nhận xóa bài?')) return;
+  try{ await deleteDoc(doc(db,'posts',postId)); toast('Đã xóa bài'); }catch(e){ console.error(e); toast('Lỗi xóa bài'); }
+}
+
+/* ========== upload helper ========== */
+async function uploadFileToStorage(file, path){
+  const refStore = ref(storage, path);
+  await uploadBytes(refStore, file);
+  return await getDownloadURL(refStore);
+}
+
+/* ========== add post (non-blocking + safe limit) ========== */
+btnPost.onclick = async ()=>{
+  if(!currentUser) return toast('Đăng nhập để đăng bài');
+  const content = postContent.value.trim();
+  const file = imageFile.files[0];
+  if(!content && !file) return toast('Nội dung rỗng');
+
+  // Check limit: query latest post by this uid
+  if(!currentUser.isAdmin){
+    try{
+      const qy = query(collection(db,'posts'), where('uid','==',currentUser.uid), orderBy('ts','desc'), limit(1));
+      const snap = await getDocs(qy);
+      if(!snap.empty){
+        const last = snap.docs[0].data().ts;
+        if(last && (now() - last.toMillis() < 24*60*60*1000)){
+          return toast('Bạn chỉ được đăng 1 lần trong 24 giờ');
+        }
+      }
+    }catch(e){ console.warn('limit check fail', e); }
+  }
+
+  btnPost.disabled = true; uploadMask.style.display='flex';
+  try{
+    let imageURL = '';
+    if(file){
+      const path = `postImages/${Date.now()}_${file.name}`;
+      imageURL = await uploadFileToStorage(file, path);
+    }
+    const postObj = {
+      uid: currentUser.uid,
+      user: currentUser.name,
+      avatar: currentUser.avatarUrl || '',
+      text: content,
+      img: imageURL,
+      ts: serverTimestamp(),
+      views: 0,
+      viewers: [],
+      reactions: {},
+      userReactions: {},
+      commentsCount: 0
+    };
+    await addDoc(collection(db,'posts'), postObj);
+    postContent.value = ''; imageFile.value = '';
+    toast('Đã đăng bài');
+  }catch(e){ console.error('add post err', e); toast('Lỗi khi thêm bài'); }
+  finally{ btnPost.disabled=false; uploadMask.style.display='none'; }
+};
+
+/* ========== Playlist per-user (profiles/{uid}/playlist) ========== */
+function startPlaylistListener(){
+  if(!currentUser) return;
+  if(playlistUnsub) playlistUnsub();
+  const q = query(collection(db,'users',currentUser.uid,'playlist'), orderBy('order','asc'));
+  playlistUnsub = onSnapshot(q, snap=>{
+    playlist = [];
+    snap.forEach(d => playlist.push({ id: d.id, ...d.data() }));
+    populateMusic();
+  });
+}
+
+function stopPlaylistListener(){ if(playlistUnsub){ playlistUnsub(); playlistUnsub = null; } playlist = []; populateMusic(); }
+
+async function ensureDefaultPlaylist(){
+  if(!currentUser) return;
+  try{
+    const snap = await getDocs(collection(db,'users',currentUser.uid,'playlist'));
+    if(snap.empty){
+      const defaults = [
+        { url:'https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Kevin_MacLeod/Classical_Sampler/Kevin_MacLeod_-_Crinoline_Dream.mp3', title:'Crinoline Dream' },
+        { url:'https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Scott_Holmes_Music/Corporate__Motivational_Music/Scott_Holmes_Music_-_Inspiring_Corporate.mp3', title:'Inspiring Corporate' },
+        { url:'https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Kevin_MacLeod/Best_of_2017/Kevin_MacLeod_-_Monkeys_Spinning_Monkeys.mp3', title:'Monkeys Spinning Monkeys' }
+      ];
+      let order = 0;
+      for(const it of defaults) await addDoc(collection(db,'users',currentUser.uid,'playlist'), { title: it.title, url: it.url, order: order++ });
+    }
+  }catch(e){ console.warn('seed playlist err', e); }
+}
+
+function populateMusic(){
+  musicSelect.innerHTML = '<option value="">-- chọn nhạc --</option>';
+  playlist.forEach((m,i)=>{ const o=document.createElement('option'); o.value = i; o.textContent = m.title || m.url; musicSelect.appendChild(o); });
+}
+
+musicSelect.onchange = ()=> {
+  const i = musicSelect.value;
+  if(i === ''){ bgMusic.pause(); bgMusic.src = ''; } else { bgMusic.src = playlist[i].url; bgMusic.play().catch(()=>{}); }
+};
+musicPlay.onclick = ()=> { if(bgMusic.paused) bgMusic.play().catch(()=>toast('Autoplay bị chặn')); else bgMusic.pause(); };
+btnPrev.onclick = ()=>{ if(!playlist.length) return; let i = Number(musicSelect.value || 0); i = (i-1+playlist.length)%playlist.length; musicSelect.value = i; musicSelect.onchange(); };
+btnNext.onclick = ()=>{ if(!playlist.length) return; let i = Number(musicSelect.value || 0); i = (i+1)%playlist.length; musicSelect.value = i; musicSelect.onchange(); };
+
+btnAddMusic.onclick = async ()=>{
+  if(!currentUser) return toast('Đăng nhập để quản lý playlist');
+  const url = prompt('Dán URL mp3 (http/https):'); if(!url) return;
+  const title = prompt('Tiêu đề (bỏ trống lấy tên file)') || url.split('/').pop();
+  try{
+    const order = playlist.length ? Math.max(...playlist.map(x=>x.order||0))+1 : 0;
+    await addDoc(collection(db,'users',currentUser.uid,'playlist'), { title, url, order });
+  }catch(e){ console.error(e); toast('Lỗi thêm bài hát'); }
+};
+
+btnRemoveMusic.onclick = async ()=>{
+  if(!currentUser) return toast('Đăng nhập để quản lý playlist');
+  const i = Number(musicSelect.value);
+  if(Number.isNaN(i) || i<0 || i>=playlist.length) return toast('Chọn bài để xóa');
+  try{ await deleteDoc(doc(db,'users',currentUser.uid,'playlist', playlist[i].id)); }catch(e){ console.error(e); toast('Lỗi xóa bài hát'); }
+};
+
+/* ========== theme ========== */
+themeToggle.onclick = ()=>{ const cur = document.documentElement.getAttribute('data-theme'); const next = cur === 'light' ? '' : 'light'; document.documentElement.setAttribute('data-theme', next); localStorage.setItem('ms_theme', next); };
+(function restoreTheme(){ const t = localStorage.getItem('ms_theme')||''; document.documentElement.setAttribute('data-theme', t); })();
+
+/* ========== small helpers: load my following on login ========== */
+async function startMyFollowingWatch(){
+  if(!currentUser) return;
+  await loadMyFollowing();
+  // optional: realtime update following set by listening to user's following subcollection
+  onSnapshot(collection(db,'users',currentUser.uid,'following'), snap=>{
+    followingSet.clear();
+    snap.forEach(d => followingSet.add(d.id));
+  });
+}
+
+/* ========== cleanup old posts (run only on admin clients to avoid spam) ========== */
+setInterval(async ()=>{
+  if(!currentUser || !currentUser.isAdmin) return;
+  try{
+    const qy = query(collection(db,'posts'), orderBy('ts','desc'), limit(30));
+    const snaps = await getDocs(qy);
+    const cutoff = Date.now() - 24*60*60*1000;
+    snaps.forEach(async d=>{
+      const p = d.data();
+      if(p.ts && p.ts.toMillis() < cutoff){
+        try{ await deleteDoc(doc(db,'posts',d.id)); }catch(e){}
+      }
+    });
+  }catch(e){}
+}, 60*1000);
+
+/* ========== initial setup on load (attach load more button) ========== */
+(function init(){
+  // append load more button area into feed
+  loadMoreWrap.style.display='none';
+  feed.appendChild(loadMoreWrap);
+})();
+</script>
+</body>
+</html>
